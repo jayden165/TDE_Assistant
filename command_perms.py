@@ -11,7 +11,8 @@ How it works
   That replaces the command's built-in requirement (admin / staff), so it can be used to open a
   command up to a new rank *or* to lock it down to a smaller one.
 * If a command has NO rule it behaves as before, except the commands in OWNER_ONLY_DEFAULT
-  (/say, /dm and their embed versions), which are owner-only until an owner grants a role.
+  (/say-embed and /dm-embed), which are owner-only until an owner grants a role. /say and /dm are
+  stricter: owner-only always, and /commandperms can't change that (see STRICT_OWNER_ONLY).
 * Bot owners always pass.
 
 The gate runs in GatedTree.interaction_check for slash commands and from cogs/prefixcmds.py for text
@@ -28,10 +29,13 @@ import database as db
 from permissions import is_owner
 
 # Owner-only until an owner explicitly grants roles with /commandperms.
-OWNER_ONLY_DEFAULT = frozenset({"say", "say-embed", "dm", "dm-embed"})
+OWNER_ONLY_DEFAULT = frozenset({"say-embed", "dm-embed"})
+
+# Owner-only, always: no role rule (and no Discord permission) can open these up.
+STRICT_OWNER_ONLY = frozenset({"say", "dm"})
 
 # Hard-wired to the owner list / setup user in their own handlers; role rules can't change them.
-NOT_CONFIGURABLE = frozenset({"owner", "commandperms", "prefix", "set"})
+NOT_CONFIGURABLE = frozenset({"owner", "commandperms", "prefix", "set"}) | STRICT_OWNER_ONLY
 
 NO_PERMS_MESSAGE = "you dont have the perms"
 
@@ -143,6 +147,8 @@ def evaluate(user, guild_id, qualified_name: str) -> str:
     """ALLOW / DENY / DEFAULT for this user running this command."""
     if is_owner(user.id):
         return ALLOW
+    if normalize(qualified_name).split(" ", 1)[0] in STRICT_OWNER_ONLY:
+        return DENY  # ignores any role rule
     if guild_id is None:
         return DEFAULT
     ids = effective_roles(guild_id, qualified_name)

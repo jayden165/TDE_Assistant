@@ -27,8 +27,9 @@ welcomer, rules, tickets, applications and diagnostics.
   (or a subcommand like `role add`) and the roles allowed to use it. Once a command has roles, only owners and those roles
   can use it - this replaces its built-in admin/staff requirement, so it can open a command to a new rank or lock it to a
   smaller one. A rule on a group (`role`) covers its subcommands; a rule on a subcommand wins. `Reset` restores the default.
-  `/say`, `/say-embed`, `/dm` and `/dm-embed` are **owner only by default** (even admins are blocked) until an owner allows
-  a role. Applies to text-prefix commands and `/help` too.
+  `/say-embed` and `/dm-embed` are **owner only by default** (even admins are blocked) until an owner allows a role.
+  `/say` and `/dm` are **owner only, always** (bot owners from `/owner`) and can't be given to roles. They send the
+  message exactly as typed (no "sent by" line) and log who used them to the staff action log channel. Applies to text-prefix commands and `/help` too.
 - **Text prefixes:** `/prefix action:Add|Remove|List prefix:` (owners). Any prefix works, e.g. `s!`, `TDE!`, `DE?`.
   Then `s! rules`, `TDE! purge 20`, `DE? welcome channel #welcome` run the same commands as the slash versions,
   with the same permission checks. Private ("only you can see") replies go to your DMs. Commands that open a

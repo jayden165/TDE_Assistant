@@ -25,12 +25,6 @@ def is_admin_perm(member: discord.Member) -> bool:
 MAX_MESSAGE_LENGTH = 2000
 
 
-def attributed(text: str, sender: discord.abc.User) -> str:
-    """Appends a small-text line saying who sent this. Uses the plain @username rather than a
-    real mention, so it never pings the sender (or anyone else)."""
-    return f"{text}\n-# sent by @{sender.name}"
-
-
 INFRACTION_EMOJI = {"strike": "❗", "warning": "⚠️", "demote": "⬇️", "timeout": "⏱️", "mute": "🔇", "kick": "👢", "ban": "🔨"}
 
 
@@ -41,14 +35,6 @@ def is_staff(member: discord.Member) -> bool:
         return True
     role_ids = {r.id for r in member.roles}
     return gc.get(member.guild.id, "staff-role") in role_ids or gc.get(member.guild.id, "admin-role") in role_ids
-
-
-def can_hide_sender(user: discord.abc.User, guild: discord.Guild) -> bool:
-    """Only the server's owner, or the bot owner, may remove the "sent by" line."""
-    return is_owner(user.id) or (guild is not None and guild.owner_id == user.id)
-
-
-NO_HIDE_MESSAGE = "you dont have the perms"
 
 
 class EmbedModal(discord.ui.Modal, title="Compose Embed"):
@@ -187,29 +173,55 @@ class ModerationTools(commands.Cog):
             )
         await interaction.response.send_message(f"Removed {role.mention} from {member.mention}.", ephemeral=True)
 
+    # ---------------- staff action log ----------------
+
+    async def _log_staff_action(self, interaction: discord.Interaction, title: str, where_label: str,
+                                where_value: str, content: str, status: str = "Sent"):
+        """Posts a /say or /dm record to the staff action log channel (if one is configured).
+        Never raises - a logging problem must not break the command itself."""
+        try:
+            channel = self.bot.get_channel(gc.get(interaction.guild_id, "staff-action-log-channel"))
+            if channel is None:
+                return
+            embed = discord.Embed(
+                title=title,
+                description=content[:4000],
+                color=discord.Color.orange() if status == "Sent" else discord.Color.red(),
+                timestamp=discord.utils.utcnow(),
+            )
+            embed.add_field(name="Used by", value=f"{interaction.user.mention} ({interaction.user.id})", inline=True)
+            embed.add_field(name=where_label, value=where_value, inline=True)
+            embed.add_field(name="Status", value=status, inline=True)
+            await channel.send(embed=embed)
+        except discord.HTTPException:
+            pass
+
     # ---------------- /say ----------------
 
-    @app_commands.command(name="say", description="[Admin] Send a plain message to a channel")
+    @app_commands.command(name="say", description="[Owner] Send a plain message to a channel")
     @app_commands.describe(
         message="What to send",
         channel="Channel to send to (defaults to this channel)",
-        hide_sender="Remove the \"sent by @user\" line (server owner / bot owner only)",
     )
-    async def say(self, interaction: discord.Interaction, message: str, channel: discord.TextChannel = None,
-                  hide_sender: bool = False):
-        if not is_admin_perm(interaction.user):
+    async def say(self, interaction: discord.Interaction, message: str, channel: discord.TextChannel = None):
+        if not is_owner(interaction.user.id):
             return await interaction.response.send_message("you dont have the perms", ephemeral=True)
-        if hide_sender and not can_hide_sender(interaction.user, interaction.guild):
-            return await interaction.response.send_message(NO_HIDE_MESSAGE, ephemeral=True)
-        target = channel or interaction.channel
-        content = message if hide_sender else attributed(message, interaction.user)
-        if len(content) > MAX_MESSAGE_LENGTH:
+        if len(message) > MAX_MESSAGE_LENGTH:
             return await interaction.response.send_message(
-                f"That message is too long - with the \"sent by\" line it has to fit in {MAX_MESSAGE_LENGTH} characters.",
-                ephemeral=True,
+                f"That message is too long - it has to fit in {MAX_MESSAGE_LENGTH} characters.", ephemeral=True,
             )
-        await target.send(content)
+        target = channel or interaction.channel
+        try:
+            await target.send(message)
+        except discord.HTTPException:
+            await interaction.response.send_message(
+                f"Couldn't send to {target.mention} - check my permissions there.", ephemeral=True,
+            )
+            return await self._log_staff_action(
+                interaction, "💬 /say", "Channel", target.mention, message, status="Failed",
+            )
         await interaction.response.send_message(f"Sent to {target.mention}.", ephemeral=True)
+        await self._log_staff_action(interaction, "💬 /say", "Channel", target.mention, message)
 
     @app_commands.command(name="say-embed", description="[Admin] Send an embed to a channel via a popup form")
     @app_commands.describe(channel="Channel to send to (defaults to this channel)")
@@ -226,25 +238,23 @@ class ModerationTools(commands.Cog):
 
     # ---------------- /dm ----------------
 
-    @app_commands.command(name="dm", description="[Admin] DM a plain message to a user")
-    @app_commands.describe(hide_sender="Remove the \"sent by @user\" line (server owner / bot owner only)")
-    async def dm(self, interaction: discord.Interaction, user: discord.Member, message: str,
-                 hide_sender: bool = False):
-        if not is_admin_perm(interaction.user):
+    @app_commands.command(name="dm", description="[Owner] DM a plain message to a user")
+    async def dm(self, interaction: discord.Interaction, user: discord.Member, message: str):
+        if not is_owner(interaction.user.id):
             return await interaction.response.send_message("you dont have the perms", ephemeral=True)
-        if hide_sender and not can_hide_sender(interaction.user, interaction.guild):
-            return await interaction.response.send_message(NO_HIDE_MESSAGE, ephemeral=True)
-        content = message if hide_sender else attributed(message, interaction.user)
-        if len(content) > MAX_MESSAGE_LENGTH:
+        if len(message) > MAX_MESSAGE_LENGTH:
             return await interaction.response.send_message(
-                f"That message is too long - with the \"sent by\" line it has to fit in {MAX_MESSAGE_LENGTH} characters.",
-                ephemeral=True,
+                f"That message is too long - it has to fit in {MAX_MESSAGE_LENGTH} characters.", ephemeral=True,
             )
         try:
-            await user.send(content)
-            await interaction.response.send_message(f"DM sent to {user.mention}.", ephemeral=True)
+            await user.send(message)
         except discord.HTTPException:
             await interaction.response.send_message(f"Couldn't DM {user.mention} — their DMs may be closed.", ephemeral=True)
+            return await self._log_staff_action(
+                interaction, "✉️ /dm", "Recipient", f"{user.mention} ({user.id})", message, status="Failed (DMs closed)",
+            )
+        await interaction.response.send_message(f"DM sent to {user.mention}.", ephemeral=True)
+        await self._log_staff_action(interaction, "✉️ /dm", "Recipient", f"{user.mention} ({user.id})", message)
 
     @app_commands.command(name="dm-embed", description="[Admin] DM an embed to a user via a popup form")
     async def dm_embed(self, interaction: discord.Interaction, user: discord.Member):

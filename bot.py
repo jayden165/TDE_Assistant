@@ -40,7 +40,7 @@ EXTENSIONS = [
 # /owner is deliberately not listed: owners aren't necessarily administrators, and its
 # handler refuses everyone who isn't on the owner list.
 ADMIN_ONLY_COMMANDS = [
-    "role", "say", "say-embed", "dm", "dm-embed", "moderation-panel",
+    "role", "say-embed", "dm-embed", "moderation-panel",
     "lock", "unlock", "cooldown", "welcome", "setrules", "bot-info",
     "honeypot", "antiraid", "antiraid-scamword", "applications",
     "debug", "debug-ping",
@@ -86,7 +86,10 @@ class TDEAssistant(commands.Bot):
         staff_perms = discord.Permissions(manage_messages=True)
         for cmd in self.tree.get_commands():
             try:
-                if config.GUILD_ID and command_perms.has_any_rule(config.GUILD_ID, cmd.name):
+                if cmd.name in command_perms.STRICT_OWNER_ONLY:
+                    # Owners aren't necessarily administrators; the handler refuses everyone else.
+                    cmd.default_permissions = None
+                elif config.GUILD_ID and command_perms.has_any_rule(config.GUILD_ID, cmd.name):
                     cmd.default_permissions = None
                 elif cmd.name in ADMIN_ONLY_COMMANDS or cmd.name in command_perms.OWNER_ONLY_DEFAULT:
                     cmd.default_permissions = admin_perms

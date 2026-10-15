@@ -138,13 +138,17 @@ class Owner(commands.Cog):
         if command:
             name = command_perms.normalize(command)
             ids = command_perms.effective_roles(guild.id, name)
-            if ids:
+            if name.split(" ", 1)[0] in command_perms.STRICT_OWNER_ONLY:
+                lines.append(f"`/{name}` - owner only (locked)")
+            elif ids:
                 lines.append(f"`/{name}` - {fmt(ids)} (and owners)")
             elif name.split(" ", 1)[0] in command_perms.OWNER_ONLY_DEFAULT:
                 lines.append(f"`/{name}` - owner only (default)")
             else:
                 lines.append(f"`/{name}` - no custom rule, default permissions")
         else:
+            for n in sorted(command_perms.STRICT_OWNER_ONLY):
+                lines.append(f"`/{n}` - owner only (locked)")
             for n in sorted(command_perms.OWNER_ONLY_DEFAULT):
                 if n not in rules:
                     lines.append(f"`/{n}` - owner only (default)")
