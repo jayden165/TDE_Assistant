@@ -3,15 +3,7 @@
 A single-server Discord bot with: honeypot, anti-raid, moderation (and logs), channel utilities,
 welcomer, rules, tickets, applications and diagnostics.
 
-## Run
-
 ```
-pip install -r requirements.txt
-cp .env.example .env   # fill in BOT_TOKEN and the IDs
-python bot.py
-```
-
-Set `GUILD_ID` so slash commands sync to your server instantly.
 
 ## Commands
 
@@ -44,5 +36,7 @@ Set `GUILD_ID` so slash commands sync to your server instantly.
 
 ## Notes
 
-- Channels and roles are configured in `.env`; `/debug` shows what resolves.
-- Data from removed features is deleted automatically on startup (`database._purge_legacy_data`).
+- Made By the staff team
+- This is a private bot - Please reach out if you wish to use any of the code
+- Don't pass this off as your own work please. The team worked hard on it 
+
