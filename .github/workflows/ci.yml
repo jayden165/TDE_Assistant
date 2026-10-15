@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"  # same as the VPS
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Compile every file
+        run: python -m compileall -q .
+
+      # The same check the VPS runs before it switches to a new commit: if this is red,
+      # the server keeps running the previous version.
+      - name: Import bot and every cog
+        run: |
+          python - <<'PY'
+          import importlib, pkgutil, sys
+          sys.path.insert(0, ".")
+          import bot  # noqa: F401
+          for m in pkgutil.iter_modules(["cogs"]):
+              importlib.import_module("cogs." + m.name)
+          print("import check ok")
+          PY
