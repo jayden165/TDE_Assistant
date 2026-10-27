@@ -23,11 +23,9 @@ class Honeypot(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    honeypot_group = app_commands.Group(name="honeypot", description="[Admin] Configure the anti-spam honeypot")
-
     # ---------------- config commands ----------------
 
-    @honeypot_group.command(name="config", description="Configure the honeypot trap (all settings in one place)")
+    @app_commands.command(name="honeypot", description="[Admin] Configure the anti-spam honeypot - run it with no options to see the current setup")
     @app_commands.describe(
         add_channel="Mark a channel as a honeypot trap — real members should never post here",
         remove_channel="Stop treating a channel as a honeypot trap",
@@ -109,20 +107,12 @@ class Honeypot(commands.Cog):
             db.set_setting(gid, "honeypot_purge", "1" if purge.value == "on" else "0")
             changes.append(f"Message purging set to **{purge.name}**")
 
-        if not changes:
-            return await interaction.response.send_message(
-                "No settings provided. Pass at least one option to change, or use `/honeypot status` to view current config.",
-                ephemeral=True,
-            )
+        if not changes:  # nothing to change: just show the current setup
+            return await interaction.response.send_message(embed=self._status_embed(interaction.guild_id), ephemeral=True)
 
         await interaction.response.send_message("Updated:\n" + "\n".join(f"- {c}" for c in changes), ephemeral=True)
 
-    @honeypot_group.command(name="status", description="View the current honeypot configuration")
-    async def hp_status(self, interaction: discord.Interaction):
-        if not is_admin_perm(interaction.user):
-            return await interaction.response.send_message("you dont have the perms", ephemeral=True)
-
-        gid = interaction.guild_id
+    def _status_embed(self, gid: int) -> discord.Embed:
         enabled = db.get_setting(gid, "honeypot_enabled", "0") == "1"
         channels = db.get_setting(gid, "honeypot_channels", "")
         chan_text = ", ".join(f"<#{c}>" for c in channels.split(",") if c) or "None set"
@@ -142,7 +132,7 @@ class Honeypot(commands.Cog):
         embed.add_field(name="Log Channel", value=f"<#{log_id}>" if log_id else "Not set", inline=True)
         embed.add_field(name="Purge Their Messages", value="Yes" if purge else "No", inline=True)
         embed.set_footer(text="Staff, admins, and the bot owner are always immune.")
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return embed
 
     # ---------------- the trap itself ----------------
 

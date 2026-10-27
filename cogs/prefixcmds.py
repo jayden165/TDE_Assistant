@@ -6,14 +6,14 @@ starts with one runs the matching slash command, with the arguments typed after 
 
     s! rules
     TDE! purge 20
-    DE? role add @someone @Member
-    s! welcome channel #welcome
+    DE? role @someone @Member
+    s! welcome #welcome
 
 Commands run through the very same handlers as the slash versions, so every permission check
 still applies. Because there's no ephemeral reply in a text message, "only you can see this"
 replies are sent to the user's DMs (short ones appear in the channel and delete themselves).
-Commands that open a pop-up form (/rules edit, /embed, /welcome message,
-/applications) need the slash version.
+Commands that open a pop-up form (/rules edit, /embed, /welcome edit_message:True,
+/applications setup) need the slash version.
 
 Moderation commands (cogs/punishments.py) take a user mention or raw ID, then the reason:
 
@@ -45,7 +45,7 @@ SHORT_REPLY = 200      # ephemeral text up to this long is posted in the channel
 SHORT_REPLY_TTL = 12   # seconds
 
 # Short forms for commands that now live inside a group, so "s! purge 20 spam" still works.
-PREFIX_ALIASES = {"purge": "channel purge", "lock": "channel lock", "unlock": "channel unlock",
+PREFIX_ALIASES = {"purge": "channel purge", "lock": "channel lock",
                   "slowmode": "channel slowmode", "cooldown": "channel slowmode"}
 
 INSMP_NAME = "insmp"

@@ -16,8 +16,8 @@ How modmail works
   * Closing (button, /modmail close, or the member's own Close button) saves a transcript to the modmail
     log channel (falls back to the transcript channel), DMs the member and removes the channel. Idle
     threads auto-close after 7 days (change with /support-mode autoclose_days, 0 = never).
-  * /modmail contact starts a thread with a member, block/unblock/blocklist stop abuse, history shows a
-    member's past threads. Deleting a thread channel by hand closes the thread properly.
+  * /modmail contact starts a thread with a member, block (run again to unblock; no member = the
+    blocklist) stops abuse, history shows a member's past threads. Deleting a thread channel by hand closes the thread properly.
   * Open threads keep working whatever the mode is; the mode only decides whether NEW ones can start.
 """
 import asyncio
@@ -779,13 +779,12 @@ class Modmail(commands.Cog):
     async def mm_close(self, interaction: discord.Interaction, reason: str = None):
         await self.close_from_interaction(interaction, (reason or "").strip())
 
-    @modmail_group.command(name="claim", description="Claim this thread")
+    @modmail_group.command(name="claim", description="Claim this thread - run it again to release your claim")
     async def mm_claim(self, interaction: discord.Interaction):
+        thread = db.mm_get_open_by_channel(interaction.channel.id) if is_staff(interaction.user) else None
+        if thread is not None and thread["claimed_by"] == interaction.user.id:
+            return await self.unclaim(interaction)
         await self.claim(interaction)
-
-    @modmail_group.command(name="unclaim", description="Release your claim on this thread")
-    async def mm_unclaim(self, interaction: discord.Interaction):
-        await self.unclaim(interaction)
 
     @modmail_group.command(name="anonymous", description="Toggle anonymous replies in this thread")
     async def mm_anonymous(self, interaction: discord.Interaction):
@@ -827,13 +826,23 @@ class Modmail(commands.Cog):
                 await channel.send(embed=error("I couldn't DM them the first message - their DMs may be closed."))
         await interaction.followup.send(f"✅ Thread opened: {channel.mention}", ephemeral=private)
 
-    @modmail_group.command(name="block", description="Stop a member from using modmail")
-    @app_commands.describe(user="Mention or user ID", reason="Why (staff-only)")
-    async def mm_block(self, interaction: discord.Interaction, user: discord.User, reason: str = "No reason given"):
+    @modmail_group.command(name="block", description="Block a member from modmail - run it again to unblock. No member = show the blocklist")
+    @app_commands.describe(user="Mention or user ID (leave empty to see who is blocked)", reason="Why (staff-only)")
+    async def mm_block(self, interaction: discord.Interaction, user: discord.User = None, reason: str = "No reason given"):
         private = not getattr(interaction, "is_prefix", False)
         if not is_staff(interaction.user):
             return await interaction.response.send_message("you dont have the perms", ephemeral=True)
         guild = interaction.guild
+        if user is None:  # no member given: show the blocklist
+            rows = db.mm_blocks(guild.id)
+            body = "\n".join(f"<@{r['user_id']}> - {r['reason'] or 'no reason'} (by <@{r['staff_id']}>)" for r in rows)[:4000] \
+                or "Nobody is blocked."
+            return await interaction.response.send_message(
+                embed=discord.Embed(title="🚫 Modmail blocklist", description=body, color=BLURPLE), ephemeral=private)
+        if db.mm_get_block(guild.id, user.id):  # already blocked: this run unblocks them
+            db.mm_unblock(guild.id, user.id)
+            return await interaction.response.send_message(embed=discord.Embed(
+                description=f"✅ {user.mention} can use modmail again.", color=GREEN), ephemeral=private)
         if permissions.is_owner(user.id) or user.id == interaction.user.id:
             return await interaction.response.send_message(embed=error("You can't block that user."), ephemeral=private)
         db.mm_block(guild.id, user.id, reason, interaction.user.id)
@@ -845,28 +854,6 @@ class Modmail(commands.Cog):
                                                   reason="The member was blocked from modmail.", notify_user=False))
         await interaction.response.send_message(embed=discord.Embed(
             description=f"🚫 {user.mention} can no longer use modmail.{note}\n**Reason:** {reason}", color=RED), ephemeral=private)
-
-    @modmail_group.command(name="unblock", description="Let a blocked member use modmail again")
-    @app_commands.describe(user="Mention or user ID")
-    async def mm_unblock(self, interaction: discord.Interaction, user: discord.User):
-        private = not getattr(interaction, "is_prefix", False)
-        if not is_staff(interaction.user):
-            return await interaction.response.send_message("you dont have the perms", ephemeral=True)
-        if db.mm_unblock(interaction.guild.id, user.id):
-            return await interaction.response.send_message(embed=discord.Embed(
-                description=f"✅ {user.mention} can use modmail again.", color=GREEN), ephemeral=private)
-        await interaction.response.send_message(embed=error(f"{user.mention} isn't blocked."), ephemeral=private)
-
-    @modmail_group.command(name="blocklist", description="Show who is blocked from modmail")
-    async def mm_blocklist(self, interaction: discord.Interaction):
-        private = not getattr(interaction, "is_prefix", False)
-        if not is_staff(interaction.user):
-            return await interaction.response.send_message("you dont have the perms", ephemeral=True)
-        rows = db.mm_blocks(interaction.guild.id)
-        body = "\n".join(f"<@{r['user_id']}> - {r['reason'] or 'no reason'} (by <@{r['staff_id']}>)" for r in rows)[:4000] \
-            or "Nobody is blocked."
-        await interaction.response.send_message(
-            embed=discord.Embed(title="🚫 Modmail blocklist", description=body, color=BLURPLE), ephemeral=private)
 
     @modmail_group.command(name="history", description="A member's past modmail threads")
     @app_commands.describe(user="Mention or user ID")

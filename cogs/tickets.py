@@ -111,7 +111,7 @@ def panel_options(guild_id: int) -> list[discord.SelectOption]:
 
 
 def build_panel_embed(guild: discord.Guild) -> discord.Embed:
-    """The support panel embed, using the server's customization (see /panel customize)."""
+    """The support panel embed, using the server's customization (see /panel customize:True)."""
     style = get_style(guild.id)
     embed = discord.Embed(
         title=style.get("title") or DEFAULT_TITLE,
@@ -143,7 +143,7 @@ class PanelSelect(discord.ui.Select):
 
 
 class TicketPanelSelectView(discord.ui.View):
-    """The dropdown on the panel posted by /panel post. Persistent; options and placeholder are rebuilt per server."""
+    """The dropdown on the panel posted by /panel. Persistent; options and placeholder are rebuilt per server."""
 
     def __init__(self, options: list[discord.SelectOption] | None = None, guild_id: int = 0):
         super().__init__(timeout=None)
@@ -215,7 +215,7 @@ class PanelStyleModal(discord.ui.Modal, title="Customize the support panel"):
 
         updated = await self.cog.refresh_panels(guild)
         note = (f"✅ Saved. Updated {updated} posted panel(s)." if updated
-                else "✅ Saved. Post the panel with `/panel post` to use it.")
+                else "✅ Saved. Post the panel with `/panel` to use it.")
         await interaction.response.send_message(content=f"{note} Preview:", embed=build_panel_embed(guild), ephemeral=True)
 
 
@@ -388,24 +388,22 @@ class Tickets(commands.Cog):
 
     # ---------------- panel setup ----------------
 
-    panel_group = app_commands.Group(name="panel", description="[Staff] Post and customize the support panel")
-
-    @panel_group.command(name="post", description="[Staff] Post the support panel (tickets / modmail dropdown) in this channel")
-    async def panel_post(self, interaction: discord.Interaction):
-        if not is_staff(interaction.user):
-            return await interaction.response.send_message("you dont have the perms", ephemeral=True)
-        await self.post_support_panel(interaction)
-
-    @panel_group.command(name="customize", description="[Admin] Change how the support panel looks")
+    @app_commands.command(name="panel", description="[Staff] Post the support panel here - add an option below to change how it looks [Admin]")
     @app_commands.describe(
+        customize="Open the form that changes how the panel looks (admin)",
         modmail_label="Name of the modmail option in the dropdown (default: Video Suggestion)",
         footer="Small text at the bottom (use 'off' to remove)",
         thumbnail="Small image link in the corner (use 'off' to remove)",
         show_list="Describe each option under the text (default: yes)",
         reset="Put the panel back to its default look",
     )
-    async def panel_customize(self, interaction: discord.Interaction, modmail_label: str = None,
-                              footer: str = None, thumbnail: str = None, show_list: bool = None, reset: bool = False):
+    async def panel(self, interaction: discord.Interaction, customize: bool = False, modmail_label: str = None,
+                    footer: str = None, thumbnail: str = None, show_list: bool = None, reset: bool = False):
+        styling = customize or reset or any(v is not None for v in (modmail_label, footer, thumbnail, show_list))
+        if not styling:  # plain /panel posts the panel
+            if not is_staff(interaction.user):
+                return await interaction.response.send_message("you dont have the perms", ephemeral=True)
+            return await self.post_support_panel(interaction)
         if not is_admin(interaction.user) and not is_owner(interaction.user.id):
             return await interaction.response.send_message("you dont have the perms", ephemeral=True)
         if reset:
@@ -798,22 +796,17 @@ class Tickets(commands.Cog):
             return
         await self.perform_close(interaction, reason)
 
-    @ticket_group.command(name="add", description="[Staff] Add someone to this ticket")
-    @app_commands.describe(user="Who to add")
-    async def t_add(self, interaction: discord.Interaction, user: discord.Member):
-        if await self._ticket_here(interaction) is None:
-            return
-        await interaction.channel.set_permissions(user, view_channel=True, send_messages=True, read_message_history=True,
-                                                  reason=f"Added to the ticket by {interaction.user}")
-        await interaction.response.send_message(embed=discord.Embed(
-            description=f"✅ {user.mention} was added to this ticket.", color=discord.Color.green()))
-
-    @ticket_group.command(name="remove", description="[Staff] Remove someone from this ticket")
-    @app_commands.describe(user="Who to remove")
-    async def t_remove(self, interaction: discord.Interaction, user: discord.Member):
+    @ticket_group.command(name="member", description="[Staff] Add someone to this ticket - or take them out with remove:True")
+    @app_commands.describe(user="Who to add or remove", remove="Remove them from the ticket instead of adding them")
+    async def t_member(self, interaction: discord.Interaction, user: discord.Member, remove: bool = False):
         ticket = await self._ticket_here(interaction)
         if ticket is None:
             return
+        if not remove:
+            await interaction.channel.set_permissions(user, view_channel=True, send_messages=True, read_message_history=True,
+                                                      reason=f"Added to the ticket by {interaction.user}")
+            return await interaction.response.send_message(embed=discord.Embed(
+                description=f"✅ {user.mention} was added to this ticket.", color=discord.Color.green()))
         if user.id == ticket["user_id"]:
             return await interaction.response.send_message("You can't remove the ticket's owner - close it instead.", ephemeral=True)
         await interaction.channel.set_permissions(user, overwrite=None, reason=f"Removed from the ticket by {interaction.user}")

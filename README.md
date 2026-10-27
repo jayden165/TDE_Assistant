@@ -10,11 +10,11 @@ welcomer, rules, tickets, applications and diagnostics.
 | Area | Commands |
 |---|---|
 | Everyone | `/help`, `/rules`, `/ping` |
-| Moderation (staff) | `/ban`, `/unban`, `/kick`, `/timeout` (`off` ends it), `/mute` (run again to unmute), `/warn`, `/infractions`, `/moderation-panel`, `/role add\|remove`, `/channel lock\|unlock\|slowmode\|purge` |
-| Support | `/panel post\|customize` (support dropdown), `/applications make\|edit\|delete\|list\|customize\|panel`, `/support-mode`, `/modmail ...` |
-| Messages | `/say` (owner; add `user:` to DM), `/embed` (admin popup; add `user:` to DM), `/insmp`, `/customcmd add\|edit\|remove\|list\|request` |
-| Server | `/welcome ...`, `/rules edit:True` |
-| Security | `/honeypot config\|status`, `/antiraid config\|status\|word-add\|word-remove\|word-list` |
+| Moderation (staff) | `/ban`, `/unban`, `/kick`, `/timeout` (`off` ends it), `/mute` (run again to unmute), `/warn`, `/infractions`, `/moderation-panel`, `/role` (`remove:True` takes it away), `/channel lock\|slowmode\|purge` (`lock time:off` unlocks) |
+| Support | `/panel` (support dropdown), `/applications setup\|list\|panel`, `/support-mode`, `/modmail ...` |
+| Messages | `/say` (owner; add `user:` to DM), `/embed` (admin popup; add `user:` to DM), `/insmp`, `/customcmd set\|list\|request` |
+| Server | `/welcome`, `/rules edit:True` |
+| Security | `/honeypot`, `/antiraid config\|word` |
 | Bot / owners | `/debug`, `/log-aio`, `/setchannel`, `/set`, `/prefix`, `/owner`, `/commandperms` |
 
 **Rate limit:** normal members can run 5 commands per 30 seconds (slash or text, including custom commands); staff, admins and owners are never limited.
@@ -22,11 +22,11 @@ Change it with `MEMBER_COMMAND_LIMIT` / `MEMBER_COMMAND_WINDOW` in `.env` (limit
 
 ### Details
 
-- **Honeypot:** `/honeypot config`, `/honeypot status`
-- **Anti-raid:** `/antiraid config|status`, and the scam keyword list: `/antiraid word-add|word-remove|word-list`
+- **Honeypot:** `/honeypot` (change settings with the options; run it with none to see the current setup)
+- **Anti-raid:** `/antiraid config` (no options = show the current setup), and the scam keyword list: `/antiraid word` (give a word to add it, `remove:True` to delete it, no word to list them)
 - **Moderation:** `/moderation-panel member:` (admins) opens a private panel for one member with Warn / Timeout / Mute-Unmute / Kick / Ban / View Logs buttons and a status
   line (timed out, muted, past actions). Each button asks for a reason and runs the same code as `/warn`, `/timeout`, `/mute`, `/kick`, `/ban` - same hierarchy checks, DM to the member,
-  infraction record and staff action log. `/role add|remove`, `/infractions`;
+  infraction record and staff action log. `/role` (add, or `remove:True`), `/infractions`;
 - **Prefix moderation:** `ban`, `unban`, `kick`, `timeout` (use `off` instead of a duration to end it), `mute` (run it again to unmute), `warn` - also available as slash commands. With a prefix:
   `s! ban <user id or @mention> <reason>`, `s! kick 123456789012345678 being rude`, `s! timeout 123456789012345678 1h spamming`
   (durations: `10m`, `2h`, `1d`, `1h30m`, bare number = minutes, max 28d), `s! warn <user> <reason>`. Bans/unbans work on users who left.
@@ -38,14 +38,14 @@ Change it with `MEMBER_COMMAND_LIMIT` / `MEMBER_COMMAND_WINDOW` in `.env` (limit
   for every log type (general, mod, staff actions, anti-raid, honeypot, applications + accepted/denied, ticket transcripts) - or one `staff-logs` channel - and points every
   log setting at it. Staff/admin roles (set with `/set`) get read-only access; @everyone can't see it. Re-running reuses the channels. Needs Manage Channels + Manage Roles.
 - **Support mode (tickets / modmail / both):** `/support-mode` (admins) switches how members get support. **Tickets** = the panel dropdown opens a private channel;
-  **Modmail** = members DM the bot; **Both** (the default) = either. Switching only affects new conversations (open tickets/threads keep working), and `/panel post` posts a panel
-  that is a **dropdown** (`/panel post`; make it yours with `/panel customize`) that looks like a "SUPPORT TICKETS" card: ℹ️ General, ❗ Report, ⚠️ Events and 👑 Admin tickets (when tickets are on; Admin tickets are only visible to the admin role) plus 🎬 *Video Suggestion* (when modmail is on - rename it with `/support-mode modmail_label:...`). Each member can have **one open ticket at a time**. Tickets follow the Ticket Tool pattern: channels are numbered (`general-0001`), the opening message has **Close · Claim · Unclaim · Close Request**, and Close asks "are you sure?" first (the ticket's owner or staff can close). Closing saves an **HTML transcript** to the transcript channel and DMs it to the owner, removes the owner's access and posts **Transcript · Open · Delete**: *Open* brings the ticket back, *Delete* removes the channel after 5 seconds. *Close Request* is for staff - it asks the owner to close (Close / Keep open). `/ticket close [reason] | add | remove | rename | transcript` manage the ticket you're in.
+  **Modmail** = members DM the bot; **Both** (the default) = either. Switching only affects new conversations (open tickets/threads keep working), and `/panel` posts a panel
+  that is a **dropdown** (`/panel`; make it yours with `/panel customize:True`) that looks like a "SUPPORT TICKETS" card: ℹ️ General, ❗ Report, ⚠️ Events and 👑 Admin tickets (when tickets are on; Admin tickets are only visible to the admin role) plus 🎬 *Video Suggestion* (when modmail is on - rename it with `/support-mode modmail_label:...`). Each member can have **one open ticket at a time**. Tickets follow the Ticket Tool pattern: channels are numbered (`general-0001`), the opening message has **Close · Claim · Unclaim · Close Request**, and Close asks "are you sure?" first (the ticket's owner or staff can close). Closing saves an **HTML transcript** to the transcript channel and DMs it to the owner, removes the owner's access and posts **Transcript · Open · Delete**: *Open* brings the ticket back, *Delete* removes the channel after 5 seconds. *Close Request* is for staff - it asks the owner to close (Close / Keep open). `/ticket close [reason] | member (add, or remove:True) | rename | transcript` manage the ticket you're in.
   Picking Video Suggestion opens a form (subject + details, with a minimum length so it can't be vague); a first DM that's too short gets "tell me a bit more" instead of opening a thread; the text goes to staff in a private modmail thread and they reply in the member's DMs. Posted panels update themselves when you switch.
 - **Modmail:** DM the bot -> "contact staff?" prompt -> a private channel in the modmail category (falls back to the ticket category) with an info card (account age,
   join date, roles, past threads, infractions) and Claim / Unclaim / Anonymous / Close buttons. Staff just type in the channel and it's DM'd to the member as an embed;
   the member's DMs show up for staff. Attachments are copied, edits sync, ✅ = delivered. Start with `//` for a private staff note. Replies can be anonymous.
   Closing (button, `/modmail close`, or the member's own Close button) saves a transcript to the modmail log channel (falls back to the transcript channel), DMs the
-  member and deletes the channel; idle threads auto-close (default 7 days, `/support-mode autoclose_days`, 0 = never). `/modmail contact|block|unblock|blocklist|history`
+  member and deletes the channel; idle threads auto-close (default 7 days, `/support-mode autoclose_days`, 0 = never). `/modmail contact|block|history` (`block` again unblocks; `block` with no member shows the blocklist; `claim` again releases your claim)
   for the rest. Needs Manage Channels; set the staff role with `/set`. Members mid-application aren't treated as modmail.
 - **Recordings:** `/recording-post` (staff) opens a form - name, when, description, max actors - and posts an embed **in the channel you run it in** with a **Join as an actor** button and a live count (`3/10 needed actors`).
   Pressing it asks for a Minecraft username, whitelists it over **RCON** (`wl <username>`), gives the actor role and replies "Thank you for joining this recording!"; a name the server rejects is reported and nothing
@@ -56,7 +56,7 @@ Change it with `MEMBER_COMMAND_LIMIT` / `MEMBER_COMMAND_WINDOW` in `.env` (limit
   An unban lifts the global bans the bot made elsewhere - but not a ban another server placed on its own, unless `GLOBAL_UNBAN_ALL=true`. The bot and bot owners are never globally banned, and the bans the bot
   makes can't loop. A summary (applied / skipped / failed, e.g. missing Ban Members) goes to the origin server's mod log and a notice to each affected server's. Needs the bot in each server with **Ban Members**;
   turn it off with `GLOBAL_BAN_ENABLED=false` in `.env`.
-- **Bot status:** `/status add activity:Watching text:over the server` and `/status remove text:...` (bot owners only; also `M! status add watching over the server`). Add as many as you like - with one it
+- **Bot status:** `/status activity:Watching text:over the server`, `/status text:... remove:True`, or `/status` alone to list them (bot owners only; also `M! status watching over the server`). Add as many as you like - with one it
   stays, with several they **rotate every minute**. Activities: Playing, Watching, Listening to, Competing in. `remove` autocompletes from the list; every reply shows the current list. Saved across restarts.
 - **YouTube updates:** `/upload channel set channel:#updates [ping:@role]` (admins) posts a new **video, Short or community post** from **The Daily Emerald** (https://www.youtube.com/@thedailyemeraldmc) in that channel - an embed with the
   thumbnail / text and a Watch button, pinging the role if you gave one. `/upload channel remove` stops it; `/upload check` tests the connection and posts nothing. The bot checks every 5 minutes (`YOUTUBE_POLL_MINUTES`) using the channel's
@@ -68,7 +68,7 @@ Change it with `MEMBER_COMMAND_LIMIT` / `MEMBER_COMMAND_WINDOW` in `.env` (limit
   official API, so that part is best-effort. The watched channel is `YOUTUBE_CHANNEL_ID` / `_HANDLE` / `_NAME` in `.env` (default: The Daily Emerald).
 - **Restart:** `/restart` (bot owners only; also the text command `!restart`) restarts the bot and re-reads its env file (`tde.env`, or `.env`; set `ENV_FILE` to use another path). It first runs the same startup check as CI and, if the bot wouldn't start, tells you why and does **not** restart. When the bot is back it posts "back online" in the channel you used it in, and the restart is logged to the Staff Action Log. Only values from the env file are re-read; variables set in a host's dashboard can only be changed there.
 - **Prefix help:** `s! help` lists every text command you can use (grouped, with usage); `s! help ban` shows one command's options and an example.
-- **Custom commands:** `/customcmd add|edit|remove|list` (owners) makes simple text commands from a form - people run them with a prefix (`?ip`, `s! discord`).
+- **Custom commands:** `/customcmd set|list` (owners; `set` with no name creates one, with a name edits it, `delete:True` removes it) makes simple text commands from a form - people run them with a prefix (`?ip`, `s! discord`).
   Responses can be plain or an embed and can use `{user}`, `{username}`, `{server}`, `{args}`. They can't run code or reuse a built-in name.
 - **/customcmd request:** (owners) for features a custom command can't do - a form (command, what it does, reason, who/options, extra info) that DMs the developer
   (`DEV_USER_ID` in `.env`, default: the setup user) with the requester, server and channel; falls back to the staff action log if DMs are closed.
@@ -77,15 +77,15 @@ Change it with `MEMBER_COMMAND_LIMIT` / `MEMBER_COMMAND_WINDOW` in `.env` (limit
   immediately, wins over `.env`; the bot warns if it can't post in the channel. Also works as `s! setchannel ticket-panel #tickets`. Changes are logged.
 - **/insmp:** `/insmp` (owners only) opens a form to set a custom message. Anyone typing `<prefix>insmp` (e.g. `?insmp`, add the `?` prefix
   with `/prefix`) gets that message back. @everyone/role pings in it are suppressed. Leave the form blank to clear it.
-- **Channel utilities:** `/channel lock|unlock|slowmode|purge` (lock/unlock/slowmode are admin, purge is staff)
-- **Welcomer:** `/welcome channel|style|message|image` (image: upload a file or give a link; it's shown in the welcome message)
+- **Channel utilities:** `/channel lock|slowmode|purge` (lock/slowmode are admin, purge is staff; `/channel lock time:off` unlocks)
+- **Welcomer:** `/welcome` with options `channel`, `style`, `image` (upload) or `url`, `remove_image`, `edit_message:True` (opens the text popup); run it with no options to preview the welcome message
 - **Rules:** `/rules` shows them; admins use `/rules edit:True` to set or clear them
-- **Panels:** `/panel post` posts the support dropdown (tickets / modmail) and `/panel customize` changes how it looks (title, text, colour, banner, placeholder in a form; `ticket_label`, `modmail_label`, `footer`, `thumbnail`, `show_list`, `reset:True` as options - posted panels update themselves); `/applications panel` posts the applications menu. Ticket transcripts are saved on close.
-- **Applications:** one group, `/applications make | edit | delete | list | customize | panel`. `panel` posts an embed with **one button per application**. Pressing a button opens the
+- **Panels:** `/panel` posts the support dropdown (tickets / modmail) and `/panel customize:True` changes how it looks (title, text, colour, banner, placeholder in a form; `ticket_label`, `modmail_label`, `footer`, `thumbnail`, `show_list`, `reset:True` as options - posted panels update themselves); `/applications panel` posts the applications menu (add `customize:True` to restyle it). Ticket transcripts are saved on close.
+- **Applications:** one group, `/applications setup | list | panel` (`setup` with no name creates an application, with a name edits it, `delete:True` removes it; `panel` posts the menu, `panel customize:True` restyles it). `panel` posts an embed with **one button per application**. Pressing a button opens the
   application as a **form** (or, for **Staff** applications and anything set with `dm:True`, sends the questions to the applicant's **DMs** one at a time - reply to each, `cancel` to stop; a form shows 5 questions per page - longer ones continue on the next page - with the question as each field's label), then a **private ticket** is opened with the
   member and the staff team. The ticket's opening message *is* the application (all the answers) with **Claim · Unclaim · Close · Close Request** buttons, plus Accept / Deny: Accept
   gives the application's role(s) - **Staff** applications automatically get the two staff roles too (matched on the name, on top of any role picked with `role:`) - and DMs the applicant (and if the application has an invite - **Voice Actor** applications automatically send the DE content server invite, or set your own with `invite:` on `make`/`edit` - the invite is in the DM and the ticket, with a join button), and a copy goes to the accepted/denied log channels if set. `make` and `edit` open a form with the **name, emoji, description**
-  and up to **20 questions** (one per line, max 100 characters each); the accept role and notification channel are pickers on the command (`/applications make role:@Member channel:#reviews dm:True`;
+  and up to **20 questions** (one per line, max 100 characters each); the accept role and notification channel are pickers on the command (`/applications setup role:@Member channel:#reviews dm:True`;
   on `edit` add `clear_role` / `clear_channel`). `customize` changes the panel's look (title, text, colour, banner, button colour; `footer`, `thumbnail`, `show_list`, `reset:True`).
   The one-open-ticket-per-member limit applies, so someone can't apply while they already have a ticket open. Posted panels update themselves.
 - **Diagnostics:** `/debug` (bot info, cogs, channels, roles, permissions), `/ping`
@@ -104,9 +104,9 @@ Change it with `MEMBER_COMMAND_LIMIT` / `MEMBER_COMMAND_WINDOW` in `.env` (limit
   `/say`, `/insmp`, `/customcmd`, `/setchannel`, `/status` and `/recording-end` are **owner only, always** (bot owners from `/owner`) and can't be given to roles. They send the
   message exactly as typed (no "sent by" line) and log who used them to the staff action log channel. Applies to text-prefix commands and `/help` too.
 - **Text prefixes:** `/prefix action:Add|Remove|List prefix:` (owners). Any prefix works, e.g. `s!`, `TDE!`, `DE?`.
-  Then `s! rules`, `TDE! purge 20 spam`, `DE? welcome channel #welcome` run the same commands as the slash versions,
+  Then `s! rules`, `TDE! purge 20 spam`, `DE? welcome #welcome` run the same commands as the slash versions,
   with the same permission checks. Private ("only you can see") replies go to your DMs. Commands that open a
-  pop-up form (`/rules edit`, `/embed`, `/welcome message`, `/applications`, `/customcmd add`) need the slash version.
+  pop-up form (`/rules edit`, `/embed`, `/welcome edit_message:True`, `/applications setup`, `/customcmd set`) need the slash version.
 
 ## Notes
 

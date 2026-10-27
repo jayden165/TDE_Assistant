@@ -251,7 +251,7 @@ class AntiRaid(commands.Cog):
 
     antiraid_group = app_commands.Group(name="antiraid", description="[Admin] Configure anti-raid spam & scam detection")
 
-    @antiraid_group.command(name="config", description="Configure anti-raid settings (all in one place)")
+    @antiraid_group.command(name="config", description="Change anti-raid settings - or run it with no options to see the current setup")
     @app_commands.describe(
         enabled="Turn anti-raid detection on or off",
         spam_limit="How many times a user can repeat the same message before getting muted",
@@ -298,19 +298,12 @@ class AntiRaid(commands.Cog):
             gc.set_override(gid, "antiraid-log-channel", log_channel.id)
             changes.append(f"Log channel set to {log_channel.mention}")
 
-        if not changes:
-            return await interaction.response.send_message(
-                "No settings provided. Pass at least one option to change, or use `/antiraid status` to view current config.",
-                ephemeral=True,
-            )
+        if not changes:  # nothing to change: just show the current setup
+            return await interaction.response.send_message(embed=self._status_embed(interaction), ephemeral=True)
 
         await interaction.response.send_message("Updated:\n" + "\n".join(f"- {c}" for c in changes), ephemeral=True)
 
-    @antiraid_group.command(name="status", description="View the current anti-raid configuration")
-    async def antiraid_status(self, interaction: discord.Interaction):
-        if not is_admin_perm(interaction.user):
-            return await interaction.response.send_message("you dont have the perms", ephemeral=True)
-
+    def _status_embed(self, interaction: discord.Interaction) -> discord.Embed:
         gid = interaction.guild_id
         log_channel = gc.get_log_channel(interaction.guild, "antiraid-log-channel")
         own_log = gc.get(gid, "antiraid-log-channel")
@@ -325,41 +318,29 @@ class AntiRaid(commands.Cog):
         embed.add_field(name="Spam Rule", value=f"> {self._spam_limit(gid)} repeats in {self._spam_window(gid)}s → mute {self._mute_minutes(gid)}m", inline=False)
         embed.add_field(name=f"Scam Keywords ({len(keywords)})", value=", ".join(f"`{k}`" for k in keywords)[:1024] or "None set", inline=False)
         embed.set_footer(text="Staff, admins, and the bot owner are always immune.")
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return embed
 
-    @antiraid_group.command(name="word-add", description="Add a keyword/phrase that triggers a scam kick")
-    @app_commands.describe(word="Text to match (case-insensitive substring match against message content)")
-    async def scamword_add(self, interaction: discord.Interaction, word: str):
+    @antiraid_group.command(name="word", description="Scam keywords: give a word to add it (remove:True to delete it), or leave empty to list them")
+    @app_commands.describe(word="Text to match (case-insensitive substring match against message content)",
+                           remove="Remove this word from the list instead of adding it")
+    async def scamword(self, interaction: discord.Interaction, word: str = None, remove: bool = False):
         if not is_admin_perm(interaction.user):
             return await interaction.response.send_message("you dont have the perms", ephemeral=True)
         keywords = get_keywords(interaction.guild_id)
+        if word is None:  # no word: list them
+            listing = "\n".join(f"**{i}.** `{k}`" for i, k in enumerate(keywords, start=1)) or "No keywords configured."
+            embed = discord.Embed(title="🚨 Scam Keywords", description=listing[:4000], color=discord.Color.blurple())
+            return await interaction.response.send_message(embed=embed, ephemeral=True)
+        if remove:
+            if not any(k.lower() == word.lower() for k in keywords):
+                return await interaction.response.send_message(f"`{word}` isn't in the list.", ephemeral=True)
+            save_keywords(interaction.guild_id, [k for k in keywords if k.lower() != word.lower()])
+            return await interaction.response.send_message(f"🗑️ Removed `{word}` from the scam keyword list.", ephemeral=True)
         if word.lower() in (k.lower() for k in keywords):
             return await interaction.response.send_message(f"`{word}` is already in the list.", ephemeral=True)
         keywords.append(word)
         save_keywords(interaction.guild_id, keywords)
         await interaction.response.send_message(f"✅ Added `{word}` to the scam keyword list.", ephemeral=True)
-
-    @antiraid_group.command(name="word-remove", description="Remove a keyword/phrase from the scam kick list")
-    @app_commands.describe(word="The exact keyword/phrase to remove")
-    async def scamword_remove(self, interaction: discord.Interaction, word: str):
-        if not is_admin_perm(interaction.user):
-            return await interaction.response.send_message("you dont have the perms", ephemeral=True)
-        keywords = get_keywords(interaction.guild_id)
-        matches = [k for k in keywords if k.lower() == word.lower()]
-        if not matches:
-            return await interaction.response.send_message(f"`{word}` isn't in the list.", ephemeral=True)
-        keywords = [k for k in keywords if k.lower() != word.lower()]
-        save_keywords(interaction.guild_id, keywords)
-        await interaction.response.send_message(f"🗑️ Removed `{word}` from the scam keyword list.", ephemeral=True)
-
-    @antiraid_group.command(name="word-list", description="List the scam keywords that trigger a kick")
-    async def scamword_list(self, interaction: discord.Interaction):
-        if not is_admin_perm(interaction.user):
-            return await interaction.response.send_message("you dont have the perms", ephemeral=True)
-        keywords = get_keywords(interaction.guild_id)
-        listing = "\n".join(f"**{i}.** `{k}`" for i, k in enumerate(keywords, start=1)) or "No keywords configured."
-        embed = discord.Embed(title="🚨 Scam Keywords", description=listing[:4000], color=discord.Color.blurple())
-        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 async def setup(bot: commands.Bot):

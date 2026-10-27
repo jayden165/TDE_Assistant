@@ -131,7 +131,7 @@ def valid_url(text: str) -> bool:
 
 
 def build_panel_embed(guild_id: int) -> discord.Embed:
-    """The applications panel embed, using the server's customization (see /applications customize)."""
+    """The applications panel embed, using the server's customization (see /applications panel customize:True)."""
     style, types = get_style(guild_id), get_types(guild_id)
     embed = discord.Embed(
         title=style.get("title") or DEFAULT_PANEL_TITLE,
@@ -239,7 +239,7 @@ def build_review_pages(user, app_id: int, app_type: str, entry: dict, questions:
 
 # Applications that send an invite link when someone is accepted, matched on the application's name (letters
 # only, case-insensitive: "Voice Actor", "voice-actors" ...). An application can also have its own invite set
-# with /applications make|edit invite:<link>, which wins over this list.
+# with /applications setup invite:<link>, which wins over this list.
 DEFAULT_ACCEPT_INVITES = {"voiceactor": "https://discord.gg/5hTptfZ5BP"}  # DE content server
 INVITE_RE = re.compile(r"https?://(?:www\.)?(?:discord\.gg|discord(?:app)?\.com/invite)/[\w-]+/?", re.I)
 
@@ -259,13 +259,13 @@ def invite_problem(text: str | None) -> str | None:
 
 # Applications that hand out extra roles when someone is accepted, matched on the application's name (letters
 # only, case-insensitive: "Staff Team", "staff application" ...). These are given IN ADDITION to the single
-# role picked with /applications make|edit role:.
+# role picked with /applications setup role:.
 DEFAULT_ACCEPT_ROLES = {"staff": [1444997607578533929, 1516526043354103908]}
 
 
 def uses_dm(app_type: str, entry: dict) -> bool:
     """True if this application is answered in the applicant's DMs instead of a pop-up form. Set per
-    application with /applications make|edit dm:True|False; unset, Staff applications use DMs."""
+    application with /applications setup dm:True|False; unset, Staff applications use DMs."""
     if "dm" in entry:
         return bool(entry["dm"])
     return "staff" in re.sub(r"[^a-z]", "", app_type.lower())
@@ -654,7 +654,7 @@ class ConfirmDeleteView(discord.ui.View):
 
 
 class ApplicationModal(discord.ui.Modal):
-    """The form for /applications make and /applications edit: name, emoji, description and up to 20
+    """The form for /applications setup (new or edit): name, emoji, description and up to 20
     questions (one per line). The accept-role and review channel come from the slash command's own
     pickers, so they're real role/channel selections rather than typed text."""
 
@@ -873,12 +873,12 @@ class Applications(commands.Cog):
             return await interaction.response.send_message("you dont have the perms", ephemeral=True)
         if not get_types(interaction.guild_id):
             return await interaction.response.send_message(
-                "No application types are configured for this server yet — use `/applications make` to create one first.",
+                "No application types are configured for this server yet — use `/applications setup` to create one first.",
                 ephemeral=True,
             )
         message = await interaction.channel.send(embed=build_panel_embed(interaction.guild_id),
                                                  view=ApplicationPanelView(interaction.guild_id))
-        # remember it so /applications customize (and make/edit/delete) can keep it up to date
+        # remember it so /applications panel customize:True (and /applications setup) can keep it up to date
         try:
             refs = json.loads(db.get_setting(interaction.guild_id, PANEL_MSGS_KEY, "[]"))
         except (ValueError, TypeError):
@@ -1152,45 +1152,50 @@ class Applications(commands.Cog):
             except (discord.HTTPException, ValueError):
                 pass
 
-    # ---------------- /applications make | edit | delete | list | panel ----------------
+    # ---------------- /applications setup | list | panel ----------------
 
     applications_group = app_commands.Group(name="applications", description="[Staff] Create, edit and post application forms")
 
-    @applications_group.command(name="make", description="[Admin] Create an application (opens a form)")
-    @app_commands.describe(role="Role given when someone is accepted (optional)",
+    @applications_group.command(name="setup", description="[Admin] Create an application, edit one (give its name) or delete one (delete:True)")
+    @app_commands.describe(name="The application to edit or delete (leave empty to create a new one)",
+                           role="Role given when someone is accepted (optional)",
                            channel="Where staff are told about new applications (default: the server's application log)",
-                           invite="A Discord invite link sent to people when they're accepted (optional)",
-                           dm="Ask the questions in the applicant's DMs instead of a pop-up form")
-    async def app_make(self, interaction: discord.Interaction, role: discord.Role = None,
-                       channel: discord.TextChannel = None, invite: str = None, dm: bool = None):
-        if not is_admin_perm(interaction.user):
-            return await interaction.response.send_message("you dont have the perms", ephemeral=True)
-        if len(get_types(interaction.guild_id)) >= MAX_APPLICATION_TYPES:
-            return await interaction.response.send_message(
-                f"This server already has the max of {MAX_APPLICATION_TYPES} applications - edit or delete one.", ephemeral=True)
-        problem = (role_problem(interaction.guild, role) if role else None) or \
-                  (channel_problem(interaction.guild, channel) if channel else None) or invite_problem(invite)
-        if problem:
-            return await interaction.response.send_message(problem, ephemeral=True)
-        await interaction.response.send_modal(ApplicationModal(self, role=role, channel=channel, invite=invite, dm=dm))
-
-    @applications_group.command(name="edit", description="[Admin] Edit an application (opens a form)")
-    @app_commands.describe(name="The application to edit",
-                           role="New role given when someone is accepted",
-                           channel="New review channel",
                            invite="Invite link sent when someone is accepted (use 'off' to remove)",
                            dm="Ask the questions in DMs (True) or a pop-up form (False)",
-                           clear_role="Stop giving a role on accept",
-                           clear_channel="Go back to the server's default review channel")
+                           clear_role="Stop giving a role on accept (editing only)",
+                           clear_channel="Go back to the server's default review channel (editing only)",
+                           delete="Delete the application named above")
     @app_commands.autocomplete(name=type_name_autocomplete)
-    async def app_edit(self, interaction: discord.Interaction, name: str, role: discord.Role = None,
-                       channel: discord.TextChannel = None, invite: str = None, dm: bool = None,
-                       clear_role: bool = False, clear_channel: bool = False):
+    async def app_setup(self, interaction: discord.Interaction, name: str = None, role: discord.Role = None,
+                        channel: discord.TextChannel = None, invite: str = None, dm: bool = None,
+                        clear_role: bool = False, clear_channel: bool = False, delete: bool = False):
         if not is_admin_perm(interaction.user):
             return await interaction.response.send_message("you dont have the perms", ephemeral=True)
         types = get_types(interaction.guild_id)
+
+        if name is None:  # no name: create a new application
+            if delete or clear_role or clear_channel:
+                return await interaction.response.send_message(
+                    "Give the application's `name` to edit or delete it - leave it empty only to create a new one.", ephemeral=True)
+            if len(types) >= MAX_APPLICATION_TYPES:
+                return await interaction.response.send_message(
+                    f"This server already has the max of {MAX_APPLICATION_TYPES} applications - edit or delete one.", ephemeral=True)
+            problem = (role_problem(interaction.guild, role) if role else None) or \
+                      (channel_problem(interaction.guild, channel) if channel else None) or invite_problem(invite)
+            if problem:
+                return await interaction.response.send_message(problem, ephemeral=True)
+            return await interaction.response.send_modal(ApplicationModal(self, role=role, channel=channel, invite=invite, dm=dm))
+
         if name not in types:
-            return await interaction.response.send_message(f"No application called **{name}**.", ephemeral=True)
+            return await interaction.response.send_message(
+                f"No application called **{name}**. Leave `name` empty to create a new one.", ephemeral=True)
+
+        if delete:
+            return await interaction.response.send_message(
+                embed=discord.Embed(description=f"Delete the **{name}** application? This can't be undone.",
+                                    color=discord.Color.red()),
+                view=ConfirmDeleteView(interaction.user.id, name), ephemeral=True)
+
         problem = (role_problem(interaction.guild, role) if role else None) or \
                   (channel_problem(interaction.guild, channel) if channel else None) or invite_problem(invite)
         if problem:
@@ -1203,26 +1208,13 @@ class Applications(commands.Cog):
             ApplicationModal(self, name, entry, role=role, channel=channel, clear_role=clear_role, clear_channel=clear_channel,
                              invite=invite, dm=dm))
 
-    @applications_group.command(name="delete", description="[Admin] Delete an application")
-    @app_commands.describe(name="The application to delete")
-    @app_commands.autocomplete(name=type_name_autocomplete)
-    async def app_delete(self, interaction: discord.Interaction, name: str):
-        if not is_admin_perm(interaction.user):
-            return await interaction.response.send_message("you dont have the perms", ephemeral=True)
-        if name not in get_types(interaction.guild_id):
-            return await interaction.response.send_message(f"No application called **{name}**.", ephemeral=True)
-        await interaction.response.send_message(
-            embed=discord.Embed(description=f"Delete the **{name}** application? This can't be undone.",
-                                color=discord.Color.red()),
-            view=ConfirmDeleteView(interaction.user.id, name), ephemeral=True)
-
     @applications_group.command(name="list", description="[Staff] Show every application and how it's set up")
     async def app_list(self, interaction: discord.Interaction):
         if not is_staff(interaction.user):
             return await interaction.response.send_message("you dont have the perms", ephemeral=True)
         types = get_types(interaction.guild_id)
         if not types:
-            return await interaction.response.send_message("No applications yet - create one with `/applications make`.", ephemeral=True)
+            return await interaction.response.send_message("No applications yet - create one with `/applications setup`.", ephemeral=True)
         guild = interaction.guild
         embed = discord.Embed(title="📋 Applications", color=discord.Color.blurple())
         for name, entry in types.items():
@@ -1238,15 +1230,19 @@ class Applications(commands.Cog):
                 break
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @applications_group.command(name="customize", description="[Admin] Change how the applications panel looks")
+    @applications_group.command(name="panel", description="[Staff] Post the applications menu here - add an option below to change how it looks [Admin]")
     @app_commands.describe(
+        customize="Open the form that changes how the panel looks (admin)",
         footer="Small text at the bottom (use 'off' to remove)",
         thumbnail="Small image link in the corner (use 'off' to remove)",
         show_list="Show the list of applications under the text (default: yes)",
         reset="Put the panel back to its default look",
     )
-    async def app_customize(self, interaction: discord.Interaction, footer: str = None, thumbnail: str = None,
-                            show_list: bool = None, reset: bool = False):
+    async def app_panel(self, interaction: discord.Interaction, customize: bool = False, footer: str = None,
+                        thumbnail: str = None, show_list: bool = None, reset: bool = False):
+        styling = customize or reset or any(v is not None for v in (footer, thumbnail, show_list))
+        if not styling:  # plain /applications panel posts the menu
+            return await self.post_panel(interaction)
         if not is_admin_perm(interaction.user):
             return await interaction.response.send_message("you dont have the perms", ephemeral=True)
         if reset:
@@ -1258,10 +1254,6 @@ class Applications(commands.Cog):
                 embed=build_panel_embed(interaction.guild_id), ephemeral=True)
         await interaction.response.send_modal(
             StyleModal(self, get_style(interaction.guild_id), footer=footer, thumbnail=thumbnail, show_list=show_list))
-
-    @applications_group.command(name="panel", description="[Staff] Post the applications menu in this channel")
-    async def app_panel(self, interaction: discord.Interaction):
-        await self.post_panel(interaction)
 
 
 async def setup(bot: commands.Bot):

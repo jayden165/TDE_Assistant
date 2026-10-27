@@ -19,8 +19,8 @@ from cogs.custom_commands import all_custom, get_custom
 OT = discord.AppCommandOptionType
 
 # These open a pop-up form or a private panel, so they only work as slash commands.
-SLASH_ONLY = {"embed", "moderation-panel", "welcome message", "applications make", "applications edit", "applications customize", "panel customize", "insmp", "customcmd add", "customcmd edit",
-              "customcmd request", "recording-post", "recording-end"}
+SLASH_ONLY = {"embed", "moderation-panel", "applications setup", "insmp", "customcmd set", "customcmd request",
+              "recording-post", "recording-end"}
 
 CATEGORIES = [
     ("🛡️ Moderation", ["ban", "unban", "kick", "timeout", "mute", "warn", "infractions", "moderation-panel", "role", "channel"]),
@@ -41,20 +41,20 @@ EXAMPLES = {
     "timeout": "{p} timeout 123456789012345678 1h spamming   (use off instead of 1h to end it)",
     "warn": "{p} warn 123456789012345678 last warning about links",
     "mute": "{p} mute 123456789012345678 spam   (run it again to unmute)",
-    "role add": "{p} role add @someone @Member",
+    "role": "{p} role @someone @Member   (add yes at the end to take the role away)",
     "channel purge": "{p} purge 20 cleaning up",
-    "channel lock": "{p} lock 1h raid in progress",
-    "welcome channel": "{p} welcome channel #welcome",
+    "channel lock": "{p} lock 1h raid in progress   (use off instead of 1h to unlock)",
+    "welcome": "{p} welcome #welcome   (no options = preview the welcome message)",
     "ticket close": "{p} ticket close resolved - thanks!",
-    "ticket add": "{p} ticket add @someone",
+    "ticket member": "{p} ticket member @someone   (add yes at the end to remove them)",
     "recording-ban": "{p} recording-ban 123456789012345678 no-show   (reason: lift = allow again)",
-    "status add": "{p} status add watching over the server",
+    "status": "{p} status watching over the server   (no options = list them)",
     "upload channel set": "{p} upload channel set #youtube-updates",
     "upload channel set": "{p} upload channel set #uploads",
     "log-aio": "{p} log-aio single",
     "support-mode": "{p} support-mode modmail",
     "modmail close": "{p} modmail close issue resolved",
-    "modmail block": "{p} modmail block 123456789012345678 spamming",
+    "modmail block": "{p} modmail block 123456789012345678 spamming   (run it again to unblock; no member = blocklist)",
     "modmail contact": "{p} modmail contact 123456789012345678 Hi! Can we chat about your report?",
     "setchannel": "{p} setchannel ticket-panel #tickets",
 }

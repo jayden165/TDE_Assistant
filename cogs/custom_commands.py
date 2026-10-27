@@ -1,7 +1,7 @@
 """
 Custom commands and command requests (bot owners only).
 
-/customcmd add | edit | remove | list
+/customcmd set | list | request
     Owners create simple text commands without touching code. `add`/`edit` open a pop-up form for the
     name and the response. Anyone can then run it with a prefix, e.g. "?ip" or "M! discord". The
     response can be plain text or an embed, and may use:
@@ -137,7 +137,7 @@ class CustomCommandModal(discord.ui.Modal):
             if name in RESERVED or self.cog.bot.tree.get_command(name) is not None:
                 return await fail(f"`{name}` is already a built-in command - pick another name.")
             if get_custom(gid, name) is not None:
-                return await fail(f"`{name}` already exists - use `/customcmd edit`.")
+                return await fail(f"`{name}` already exists - use `/customcmd set name:...`.")
             if len(all_custom(gid)) >= MAX_COMMANDS:
                 return await fail(f"You can have at most {MAX_COMMANDS} custom commands.")
         if not body:
@@ -194,34 +194,23 @@ class CustomCommands(commands.Cog):
 
     customcmd_group = app_commands.Group(name="customcmd", description="[Owner] Create custom text commands, or request a new feature")
 
-    @customcmd_group.command(name="add", description="Create a custom command (opens a form)")
-    async def cc_add(self, interaction: discord.Interaction):
+    @customcmd_group.command(name="set", description="Create, edit or delete a custom command (no name = create a new one)")
+    @app_commands.describe(name="The custom command to edit or delete (leave empty to create a new one)",
+                           delete="Delete the command instead of editing it")
+    async def cc_set(self, interaction: discord.Interaction, name: str = None, delete: bool = False):
         if not self._owner_only(interaction):
             return await interaction.response.send_message(command_perms.NO_PERMS_MESSAGE, ephemeral=True)
-        await interaction.response.send_modal(CustomCommandModal(self))
-
-    @customcmd_group.command(name="edit", description="Edit a custom command (opens a form)")
-    @app_commands.describe(name="The custom command to edit")
-    async def cc_edit(self, interaction: discord.Interaction, name: str):
-        if not self._owner_only(interaction):
-            return await interaction.response.send_message(command_perms.NO_PERMS_MESSAGE, ephemeral=True)
+        if name is None:  # no name: open the form for a brand-new command
+            return await interaction.response.send_modal(CustomCommandModal(self))
         name = name.lower().strip()
         entry = get_custom(interaction.guild.id, name)
         if entry is None:
             return await interaction.response.send_message(f"There's no custom command called `{name}`.", ephemeral=True)
+        if delete:
+            db.delete_setting(interaction.guild.id, KEY_PREFIX + name)
+            logging.info("custom command %r removed by %s", name, interaction.user.id)
+            return await interaction.response.send_message(f"🗑️ Removed `{name}`.", ephemeral=True)
         await interaction.response.send_modal(CustomCommandModal(self, name, entry))
-
-    @customcmd_group.command(name="remove", description="Delete a custom command")
-    @app_commands.describe(name="The custom command to delete")
-    async def cc_remove(self, interaction: discord.Interaction, name: str):
-        if not self._owner_only(interaction):
-            return await interaction.response.send_message(command_perms.NO_PERMS_MESSAGE, ephemeral=True)
-        name = name.lower().strip()
-        if get_custom(interaction.guild.id, name) is None:
-            return await interaction.response.send_message(f"There's no custom command called `{name}`.", ephemeral=True)
-        db.delete_setting(interaction.guild.id, KEY_PREFIX + name)
-        logging.info("custom command %r removed by %s", name, interaction.user.id)
-        await interaction.response.send_message(f"🗑️ Removed `{name}`.", ephemeral=True)
 
     @customcmd_group.command(name="list", description="List the custom commands")
     async def cc_list(self, interaction: discord.Interaction):
@@ -229,7 +218,7 @@ class CustomCommands(commands.Cog):
             return await interaction.response.send_message(command_perms.NO_PERMS_MESSAGE, ephemeral=True)
         entries = all_custom(interaction.guild.id)
         if not entries:
-            body = "None yet - create one with `/customcmd add`."
+            body = "None yet - create one with `/customcmd set`."
         else:
             lines = []
             for name, e in entries.items():
@@ -240,8 +229,7 @@ class CustomCommands(commands.Cog):
             embed=discord.Embed(title="🧩 Custom commands", description=body, color=discord.Color.blurple()),
             ephemeral=True)
 
-    @cc_edit.autocomplete("name")
-    @cc_remove.autocomplete("name")
+    @cc_set.autocomplete("name")
     async def _name_autocomplete(self, interaction: discord.Interaction, current: str):
         if not is_owner(interaction.user.id) or interaction.guild is None:
             return []

@@ -207,11 +207,23 @@ class GatedTree(app_commands.CommandTree):
 # Commands that were merged or renamed: rules an owner saved for the old name move to the new one.
 # None = the command no longer exists in a form a role rule makes sense for, so the old rule is dropped.
 _RENAMED = {
-    "purge": "channel purge", "lock": "channel lock", "unlock": "channel unlock", "cooldown": "channel slowmode",
+    "purge": "channel purge", "lock": "channel lock", "unlock": "channel lock", "cooldown": "channel slowmode",
     "say-embed": "embed", "dm-embed": "embed", "dm": "say", "untimeout": "timeout", "unmute": "mute",
-    "setrules": None, "antiraid-scamword add": "antiraid word-add", "antiraid-scamword remove": "antiraid word-remove",
-    "antiraid-scamword list": "antiraid word-list", "ticketpanel": "panel", "application-panel": "applications panel",
+    "setrules": None, "antiraid-scamword add": "antiraid word", "antiraid-scamword remove": "antiraid word",
+    "antiraid-scamword list": "antiraid word", "ticketpanel": "panel", "application-panel": "applications panel",
     "debug-ping": "debug", "bot-info": "debug", "requestcmd": "customcmd request",
+    # commands merged to cut the command list down (rules on the old names move to the merged command)
+    "applications make": "applications setup", "applications edit": "applications setup",
+    "applications delete": "applications setup", "applications customize": "applications panel",
+    "panel post": "panel", "panel customize": "panel",
+    "ticket add": "ticket member", "ticket remove": "ticket member",
+    "modmail unclaim": "modmail claim", "modmail unblock": "modmail block", "modmail blocklist": "modmail block",
+    "antiraid status": "antiraid config", "antiraid word-add": "antiraid word", "antiraid word-remove": "antiraid word",
+    "antiraid word-list": "antiraid word", "honeypot config": "honeypot", "honeypot status": "honeypot",
+    "customcmd add": "customcmd set", "customcmd edit": "customcmd set", "customcmd remove": "customcmd set",
+    "channel unlock": "channel lock", "role add": "role", "role remove": "role",
+    "welcome channel": "welcome", "welcome style": "welcome", "welcome message": "welcome", "welcome image": "welcome",
+    "status add": "status", "status remove": "status",
 }
 
 

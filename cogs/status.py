@@ -1,8 +1,8 @@
 """
-/status add | remove - the bot's status, set by bot owners only (slash or text: "M! status add watching the server").
+/status - the bot's status, set by bot owners only (slash or text: "M! status watching the server"; add remove:True to delete one).
 
 A status is an activity line under the bot's name: Playing / Watching / Listening to / Competing in + text.
-Add as many as you like. With one, it just stays; with more than one they rotate every minute. `remove`
+Add as many as you like. With one, it just stays; with more than one they rotate every minute. `text`
 autocompletes from the current list. Statuses are saved, so they survive restarts. (Discord doesn't let bots
 show a "custom status" - bots only get these activity types.)
 """
@@ -85,21 +85,40 @@ class Status(commands.Cog):
 
     # ---------------- /status ----------------
 
-    status_group = app_commands.Group(name="status", description="[Owner] Set the bot's status (several rotate every minute)")
-
     @staticmethod
     def _reply(text: str, ok: bool = True) -> discord.Embed:
         return discord.Embed(description=text, color=discord.Color.green() if ok else discord.Color.red())
 
-    @status_group.command(name="add", description="Add a status")
-    @app_commands.describe(activity="What the bot is doing", text="The status text")
+    @app_commands.command(name="status", description="[Owner] Add a bot status (several rotate every minute), remove one, or list them")
+    @app_commands.describe(activity="What the bot is doing (needed to add a status)",
+                           text="The status text (leave empty to list your statuses)",
+                           remove="Remove the status with this text instead of adding one")
     @app_commands.choices(activity=[app_commands.Choice(name=name, value=key) for key, (_t, name) in ACTIVITY_TYPES.items()])
-    async def status_add(self, interaction: discord.Interaction, activity: app_commands.Choice[str], text: str):
+    async def status(self, interaction: discord.Interaction, activity: app_commands.Choice[str] = None,
+                     text: str = None, remove: bool = False):
         private = not getattr(interaction, "is_prefix", False)
         if not is_owner(interaction.user.id):
             return await interaction.response.send_message(command_perms.NO_PERMS_MESSAGE, ephemeral=True)
-        text = text.strip()
         statuses = load()
+        if text is None:  # nothing to add or remove: show the list
+            return await interaction.response.send_message(embed=self._reply(listing(statuses)), ephemeral=private)
+        text = text.strip()
+        if remove:
+            wanted = text.lower()
+            # accept the bare text, or the full "Watching the server" label shown in the list
+            match = next((s for s in statuses if s["text"].lower() == wanted or label(s).lower() == wanted), None)
+            if match is None:
+                return await interaction.response.send_message(
+                    embed=self._reply(f"I couldn't find that status.\n\n{listing(statuses)}", ok=False), ephemeral=private)
+            statuses.remove(match)
+            save(statuses)
+            self._i = 0
+            self.rotate.restart()
+            return await interaction.response.send_message(
+                embed=self._reply(f"🗑️ Removed **{label(match)}**\n\n{listing(statuses)}"), ephemeral=private)
+        if activity is None:
+            return await interaction.response.send_message(
+                embed=self._reply("Pick an `activity` (Playing, Watching...) to add a status.", ok=False), ephemeral=private)
         if not text or len(text) > MAX_TEXT:
             return await interaction.response.send_message(
                 embed=self._reply(f"The status text must be 1-{MAX_TEXT} characters.", ok=False), ephemeral=private)
@@ -116,27 +135,7 @@ class Status(commands.Cog):
         await interaction.response.send_message(
             embed=self._reply(f"✅ Added **{label(statuses[-1])}**\n\n{listing(statuses)}"), ephemeral=private)
 
-    @status_group.command(name="remove", description="Remove a status")
-    @app_commands.describe(text="The status to remove (pick it from the list)")
-    async def status_remove(self, interaction: discord.Interaction, text: str):
-        private = not getattr(interaction, "is_prefix", False)
-        if not is_owner(interaction.user.id):
-            return await interaction.response.send_message(command_perms.NO_PERMS_MESSAGE, ephemeral=True)
-        statuses = load()
-        wanted = text.strip().lower()
-        # accept the bare text, or the full "Watching the server" label shown in the list
-        match = next((s for s in statuses if s["text"].lower() == wanted or label(s).lower() == wanted), None)
-        if match is None:
-            return await interaction.response.send_message(
-                embed=self._reply(f"I couldn't find that status.\n\n{listing(statuses)}", ok=False), ephemeral=private)
-        statuses.remove(match)
-        save(statuses)
-        self._i = 0
-        self.rotate.restart()
-        await interaction.response.send_message(
-            embed=self._reply(f"🗑️ Removed **{label(match)}**\n\n{listing(statuses)}"), ephemeral=private)
-
-    @status_remove.autocomplete("text")
+    @status.autocomplete("text")
     async def _remove_autocomplete(self, interaction: discord.Interaction, current: str):
         if not is_owner(interaction.user.id):
             return []

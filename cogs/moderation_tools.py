@@ -151,31 +151,25 @@ class ModerationTools(commands.Cog):
 
     # ---------------- /role ----------------
 
-    role_group = app_commands.Group(name="role", description="[Admin] Add or remove a role from a member")
-
-    @role_group.command(name="add", description="Add a role to a member")
-    async def role_add(self, interaction: discord.Interaction, member: discord.Member, role: discord.Role):
+    @app_commands.command(name="role", description="[Admin] Add a role to a member - or take it away with remove:True")
+    @app_commands.describe(member="Who to change", role="The role to add or remove",
+                           remove="Take the role away instead of adding it")
+    async def role(self, interaction: discord.Interaction, member: discord.Member, role: discord.Role, remove: bool = False):
         if not is_admin_perm(interaction.user):
             return await interaction.response.send_message("you dont have the perms", ephemeral=True)
+        verb = "remove" if remove else "add"
         try:
-            await member.add_roles(role, reason=f"Added by {interaction.user} via /role add")
+            if remove:
+                await member.remove_roles(role, reason=f"Removed by {interaction.user} via /role")
+            else:
+                await member.add_roles(role, reason=f"Added by {interaction.user} via /role")
         except discord.Forbidden:
             return await interaction.response.send_message(
-                "Couldn't add that role — check my permissions and role hierarchy.", ephemeral=True,
+                f"Couldn't {verb} that role — check my permissions and role hierarchy.", ephemeral=True,
             )
-        await interaction.response.send_message(f"Added {role.mention} to {member.mention}.", ephemeral=True)
-
-    @role_group.command(name="remove", description="Remove a role from a member")
-    async def role_remove(self, interaction: discord.Interaction, member: discord.Member, role: discord.Role):
-        if not is_admin_perm(interaction.user):
-            return await interaction.response.send_message("you dont have the perms", ephemeral=True)
-        try:
-            await member.remove_roles(role, reason=f"Removed by {interaction.user} via /role remove")
-        except discord.Forbidden:
-            return await interaction.response.send_message(
-                "Couldn't remove that role — check my permissions and role hierarchy.", ephemeral=True,
-            )
-        await interaction.response.send_message(f"Removed {role.mention} from {member.mention}.", ephemeral=True)
+        await interaction.response.send_message(
+            f"Removed {role.mention} from {member.mention}." if remove else f"Added {role.mention} to {member.mention}.",
+            ephemeral=True)
 
     # ---------------- staff action log ----------------
 

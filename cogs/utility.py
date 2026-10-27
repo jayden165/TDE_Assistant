@@ -201,7 +201,7 @@ def _welcome_description(member: discord.Member) -> str:
 def build_welcome_embed(member: discord.Member) -> discord.Embed:
     """The welcome embed: the server's custom message (or the default) on top, and the
     member's profile ALWAYS underneath it - the profile is not optional, so a custom message
-    can never remove it. Shared by the join listener and the /welcome message preview."""
+    can never remove it. Shared by the join listener and the /welcome preview."""
     guild = member.guild
     ordinal = _ordinal(guild.member_count or 0)
     description = _welcome_description(member)
@@ -289,7 +289,7 @@ class WelcomeMessageModal(discord.ui.Modal, title="Set Welcome Message"):
         preview_text = payload["content"] if "embed" not in payload else payload["embed"].description
         channel_id = db.get_setting(interaction.guild_id, "welcome_channel_id")
         where = (f"Posting in <#{channel_id}>." if channel_id
-                 else "No welcome channel is set yet - use `/welcome channel`.")
+                 else "No welcome channel is set yet - use `/welcome channel:#...`.")
         warn = ""
         blocked = unpingable_roles(interaction.guild, preview_text)
         if blocked:
@@ -405,22 +405,31 @@ class Utility(commands.Cog):
             return await interaction.response.send_modal(SetRulesModal(current))
         await interaction.response.send_message(embed=rules_embed(interaction.guild), view=RulesLinkView(), ephemeral=True)
 
-    # ---------------- /channel (lock, unlock, slowmode, purge) ----------------
+    # ---------------- /channel (lock, slowmode, purge) ----------------
 
-    channel_group = app_commands.Group(name="channel", description="[Staff] Lock, unlock, slow down or clean up a channel")
+    channel_group = app_commands.Group(name="channel", description="[Staff] Lock (or unlock), slow down or clean up a channel")
 
-    @channel_group.command(name="lock", description="[Admin] Lock a channel so nobody can type")
+    @channel_group.command(name="lock", description="[Admin] Lock a channel so nobody can type - or use 'off' as the time to unlock it")
     @app_commands.describe(
-        time="How long to lock for (e.g. 30m, 2h, 1d, or 'infinite')",
-        reason="Why the channel is being locked",
-        channel="Channel to lock (defaults to this one)",
+        time="How long to lock for (e.g. 30m, 2h, 1d, or 'infinite') - or 'off' to unlock the channel",
+        reason="Why the channel is being locked (needed to lock)",
+        channel="Channel to lock or unlock (defaults to this one)",
     )
-    async def lock(self, interaction: discord.Interaction, time: str, reason: str,
+    async def lock(self, interaction: discord.Interaction, time: str, reason: str = None,
                     channel: discord.TextChannel = None):
         if not is_admin_perm(interaction.user):
             return await interaction.response.send_message("you dont have the perms", ephemeral=True)
 
         target = channel or interaction.channel
+        if time.strip().lower() in ("off", "unlock"):  # 'off' lifts a lock
+            try:
+                await target.set_permissions(interaction.guild.default_role, send_messages=None,
+                                              reason=f"Unlocked by {interaction.user}")
+            except discord.Forbidden:
+                return await interaction.response.send_message("I don't have permission to unlock that channel.", ephemeral=True)
+            return await interaction.response.send_message(f"Unlocked {target.mention}.", ephemeral=True)
+        if not reason:
+            return await interaction.response.send_message("Give a reason to lock the channel.", ephemeral=True)
         seconds = parse_duration(time)
 
         try:
@@ -453,18 +462,6 @@ class Utility(commands.Cog):
             ))
         except discord.HTTPException:
             pass
-
-    @channel_group.command(name="unlock", description="[Admin] Unlock a previously locked channel")
-    async def unlock(self, interaction: discord.Interaction, channel: discord.TextChannel = None):
-        if not is_admin_perm(interaction.user):
-            return await interaction.response.send_message("you dont have the perms", ephemeral=True)
-        target = channel or interaction.channel
-        try:
-            await target.set_permissions(interaction.guild.default_role, send_messages=None,
-                                          reason=f"Unlocked by {interaction.user}")
-        except discord.Forbidden:
-            return await interaction.response.send_message("I don't have permission to unlock that channel.", ephemeral=True)
-        await interaction.response.send_message(f"Unlocked {target.mention}.", ephemeral=True)
 
     @channel_group.command(name="slowmode", description="[Admin] Set a channel's slowmode (0 turns it off)")
     @app_commands.describe(time="Slowmode delay (e.g. 10s, 5m, or 0 to disable)")
@@ -515,86 +512,67 @@ class Utility(commands.Cog):
 
     # ---------------- /welcome ----------------
 
-    welcome_group = app_commands.Group(name="welcome", description="[Admin] Configure the welcome message")
-
-    @welcome_group.command(name="channel", description="[Admin] Set the channel welcome messages get posted in")
-    @app_commands.describe(channel="Channel welcome messages get posted in")
-    async def welcome_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):
-        if not is_admin_perm(interaction.user):
-            return await interaction.response.send_message("you dont have the perms", ephemeral=True)
-        db.set_setting(interaction.guild_id, "welcome_channel_id", channel.id)
-        await interaction.response.send_message(
-            f"Welcome messages will be posted in {channel.mention}. "
-            "Use `/welcome message` to customize the text.",
-            ephemeral=True,
-        )
-
-    @welcome_group.command(name="style", description="[Admin] Send welcomes as an embed or as a plain message")
-    @app_commands.describe(style="How welcome messages should be sent")
+    @app_commands.command(name="welcome", description="[Admin] Set up the welcome message - run it with no options to preview it")
+    @app_commands.describe(channel="Channel welcome messages get posted in",
+                           style="How welcome messages should be sent",
+                           image="Upload an image for the welcome message",
+                           url="...or a direct link to an image",
+                           remove_image="Remove the current welcome image",
+                           edit_message="Open a popup to write the custom welcome message")
     @app_commands.choices(style=[
         app_commands.Choice(name="Embed", value="embed"),
         app_commands.Choice(name="Plain message", value="plain"),
     ])
-    async def welcome_style(self, interaction: discord.Interaction, style: app_commands.Choice[str]):
-        if not is_admin_perm(interaction.user):
-            return await interaction.response.send_message("you dont have the perms", ephemeral=True)
-        db.set_setting(interaction.guild_id, WELCOME_STYLE_KEY, style.value)
-        channel_id = db.get_setting(interaction.guild_id, "welcome_channel_id")
-        where = (f"Posting in <#{channel_id}>." if channel_id
-                 else "No welcome channel is set yet - use `/welcome channel`.")
-        payload = build_welcome_payload(interaction.user)
-        header = f"✅ Welcomes will now be sent as **{style.name.lower()}**. {where} Preview:"
-        await interaction.response.send_message(**preview_kwargs(header, payload))
-
-    @welcome_group.command(name="message", description="[Admin] Open a popup to write the custom welcome message")
-    async def welcome_message(self, interaction: discord.Interaction):
-        if not is_admin_perm(interaction.user):
-            return await interaction.response.send_message("you dont have the perms", ephemeral=True)
-        current = db.get_setting(interaction.guild_id, WELCOME_MESSAGE_KEY)
-        await interaction.response.send_modal(WelcomeMessageModal(current))
-
-    @welcome_group.command(name="image", description="[Admin] Add an image to the welcome message (upload one, or give a link)")
-    @app_commands.describe(image="Upload an image", url="...or a direct link to an image",
-                           remove="Remove the current welcome image")
-    async def welcome_image(self, interaction: discord.Interaction, image: discord.Attachment = None,
-                            url: str = None, remove: bool = False):
+    async def welcome(self, interaction: discord.Interaction, channel: discord.TextChannel = None,
+                      style: app_commands.Choice[str] = None, image: discord.Attachment = None,
+                      url: str = None, remove_image: bool = False, edit_message: bool = False):
         if not is_admin_perm(interaction.user):
             return await interaction.response.send_message("you dont have the perms", ephemeral=True)
         gid = interaction.guild_id
 
-        if remove:
-            clear_welcome_image(gid)
-            return await interaction.response.send_message("🗑️ Welcome image removed.", ephemeral=True)
-
-        if image is not None:
+        # check the image first, so a bad one doesn't leave the other settings half-applied
+        if image is not None and not remove_image:
             ext = os.path.splitext(image.filename)[1].lower()
             if ext not in _IMAGE_EXTS or not (image.content_type or "").startswith("image/"):
                 return await interaction.response.send_message(
                     "That doesn't look like an image (png, jpg, gif or webp).", ephemeral=True)
             if image.size > MAX_WELCOME_IMAGE_BYTES:
                 return await interaction.response.send_message("That image is over 8 MB.", ephemeral=True)
+        elif url and not remove_image and not url.strip().lower().startswith(("http://", "https://")):
+            return await interaction.response.send_message("The link must start with http:// or https://", ephemeral=True)
+
+        notes = []
+        if channel is not None:
+            db.set_setting(gid, "welcome_channel_id", channel.id)
+            notes.append(f"✅ Welcomes will be posted in {channel.mention}.")
+        if style is not None:
+            db.set_setting(gid, WELCOME_STYLE_KEY, style.value)
+            notes.append(f"✅ Welcomes will be sent as **{style.name.lower()}**.")
+        if remove_image:
+            clear_welcome_image(gid)
+            notes.append("🗑️ Welcome image removed.")
+        elif image is not None:
+            ext = os.path.splitext(image.filename)[1].lower()
             data = await image.read()
             clear_welcome_image(gid)
             os.makedirs(_welcome_image_dir(), exist_ok=True)
             with open(os.path.join(_welcome_image_dir(), f"{gid}{ext}"), "wb") as f:
                 f.write(data)
-            note = "✅ Welcome image saved."
+            notes.append("✅ Welcome image saved.")
         elif url:
-            url = url.strip()
-            if not url.lower().startswith(("http://", "https://")):
-                return await interaction.response.send_message("The link must start with http:// or https://", ephemeral=True)
             clear_welcome_image(gid)
-            db.set_setting(gid, WELCOME_IMAGE_URL_KEY, url)
-            note = "✅ Welcome image link saved."
-        else:
-            return await interaction.response.send_message(
-                "Upload an image, give a link, or set `remove` to true.", ephemeral=True)
+            db.set_setting(gid, WELCOME_IMAGE_URL_KEY, url.strip())
+            notes.append("✅ Welcome image link saved.")
+
+        if edit_message:  # the popup has to be the one reply to this command
+            current = db.get_setting(gid, WELCOME_MESSAGE_KEY)
+            return await interaction.response.send_modal(WelcomeMessageModal(current))
 
         channel_id = db.get_setting(gid, "welcome_channel_id")
         where = (f"Posting in <#{channel_id}>." if channel_id
-                 else "No welcome channel is set yet - use `/welcome channel`.")
-        await interaction.response.send_message(
-            **preview_kwargs(f"{note} {where} Preview:", build_welcome_payload(interaction.user)))
+                 else "No welcome channel is set yet - use `/welcome channel:#...`.")
+        header = " ".join(notes + [where, "Preview:"]) if notes else f"Current welcome setup. {where} Preview:"
+        await interaction.response.send_message(**preview_kwargs(header, build_welcome_payload(interaction.user)))
 
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member):
