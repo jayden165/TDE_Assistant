@@ -74,6 +74,7 @@ class RulesLinkView(discord.ui.View):
 
 WELCOME_MESSAGE_KEY = "welcome_message"
 WELCOME_IMAGE_URL_KEY = "welcome_image_url"
+WELCOME_DETAILS_KEY = "welcome_details"  # member info line / profile fields; on unless set to "off"
 WELCOME_CARD_KEY = "welcome_card"  # per-member "Member #N" card; on unless set to "off"
 MAX_WELCOME_IMAGE_BYTES = 8 * 1024 * 1024
 _IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".gif", ".webp")
@@ -112,6 +113,10 @@ def _welcome_image(guild_id: int):
         return discord.File(path, filename=name), f"attachment://{name}"
     url = db.get_setting(guild_id, WELCOME_IMAGE_URL_KEY)
     return None, url or None
+
+
+def welcome_details_enabled(guild_id: int) -> bool:
+    return (db.get_setting(guild_id, WELCOME_DETAILS_KEY) or "on") != "off"
 
 
 def welcome_card_enabled(guild_id: int) -> bool:
@@ -230,13 +235,14 @@ def build_welcome_embed(member: discord.Member) -> discord.Embed:
         timestamp=discord.utils.utcnow(),
     )
 
-    # ---- Profile (always shown, always below the custom message) ----
-    joined = member.joined_at or discord.utils.utcnow()
-    embed.add_field(name="👤 Member", value=f"{member.mention}\n`{member}`", inline=True)
-    embed.add_field(name="🆔 User ID", value=f"`{member.id}`", inline=True)
-    embed.add_field(name="🔢 Member #", value=f"**{ordinal}**", inline=True)
-    embed.add_field(name="📅 Account Created", value=discord.utils.format_dt(member.created_at, "R"), inline=True)
-    embed.add_field(name="📥 Joined Server", value=discord.utils.format_dt(joined, "R"), inline=True)
+    # ---- Profile (below the custom message; admins can hide it with /welcome details:False) ----
+    if welcome_details_enabled(guild.id):
+        joined = member.joined_at or discord.utils.utcnow()
+        embed.add_field(name="👤 Member", value=f"{member.mention}\n`{member}`", inline=True)
+        embed.add_field(name="🆔 User ID", value=f"`{member.id}`", inline=True)
+        embed.add_field(name="🔢 Member #", value=f"**{ordinal}**", inline=True)
+        embed.add_field(name="📅 Account Created", value=discord.utils.format_dt(member.created_at, "R"), inline=True)
+        embed.add_field(name="📥 Joined Server", value=discord.utils.format_dt(joined, "R"), inline=True)
     embed.set_thumbnail(url=member.display_avatar.url)
     embed.set_footer(text=guild.name, icon_url=guild.icon.url if guild.icon else None)
     return embed
@@ -252,9 +258,10 @@ async def build_welcome_payload(member: discord.Member) -> dict:
         text = _welcome_description(member)
         if member.mention not in text:  # custom message without {user}: still ping the new member
             text = f"{member.mention} {text}"
-        ordinal = _ordinal(guild.member_count or 0)
-        text += (f"\n-# {member} • ID `{member.id}` • Member **{ordinal}** • "
-                 f"Account created {discord.utils.format_dt(member.created_at, 'R')}")
+        if welcome_details_enabled(guild.id):
+            ordinal = _ordinal(guild.member_count or 0)
+            text += (f"\n-# {member} • ID `{member.id}` • Member **{ordinal}** • "
+                     f"Account created {discord.utils.format_dt(member.created_at, 'R')}")
         file, image = await _welcome_media(member)
         if image and file is None:
             text += f"\n{image}"  # external image link: Discord shows it under the message
@@ -536,6 +543,7 @@ class Utility(commands.Cog):
                            image="Upload an image for the welcome message",
                            url="...or a direct link to an image",
                            remove_image="Remove the current welcome image",
+                           details="Show the member info line (name, ID, member #, account age) - default: on",
                            card="Turn the per-member 'Member #N' welcome card on or off (default: on)",
                            edit_message="Open a popup to write the custom welcome message")
     @app_commands.choices(style=[
@@ -544,7 +552,8 @@ class Utility(commands.Cog):
     ])
     async def welcome(self, interaction: discord.Interaction, channel: discord.TextChannel = None,
                       style: app_commands.Choice[str] = None, image: discord.Attachment = None,
-                      url: str = None, remove_image: bool = False, card: bool = None,
+                      url: str = None, remove_image: bool = False, details: bool = None,
+                      card: bool = None,
                       edit_message: bool = False):
         if not is_admin_perm(interaction.user):
             return await interaction.response.send_message("you dont have the perms", ephemeral=True)
@@ -568,6 +577,9 @@ class Utility(commands.Cog):
         if style is not None:
             db.set_setting(gid, WELCOME_STYLE_KEY, style.value)
             notes.append(f"✅ Welcomes will be sent as **{style.name.lower()}**.")
+        if details is not None:
+            db.set_setting(gid, WELCOME_DETAILS_KEY, "on" if details else "off")
+            notes.append("✅ Member info line turned **on**." if details else "✅ Member info line turned **off**.")
         if card is not None:
             db.set_setting(gid, WELCOME_CARD_KEY, "on" if card else "off")
             notes.append("✅ Welcome card turned **on** - every new member gets their own card." if card

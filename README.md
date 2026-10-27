@@ -78,7 +78,7 @@ Change it with `MEMBER_COMMAND_LIMIT` / `MEMBER_COMMAND_WINDOW` in `.env` (limit
 - **/insmp:** `/insmp` (owners only) opens a form to set a custom message. Anyone typing `<prefix>insmp` (e.g. `?insmp`, add the `?` prefix
   with `/prefix`) gets that message back. @everyone/role pings in it are suppressed. Leave the form blank to clear it.
 - **Channel utilities:** `/channel lock|slowmode|purge` (lock/slowmode are admin, purge is staff; `/channel lock time:off` unlocks)
-- **Welcomer:** `/welcome` with options `channel`, `style`, `image` (upload) or `url`, `remove_image`, `card`, `edit_message:True` (opens the text popup); run it with no options to preview the welcome message.
+- **Welcomer:** `/welcome` with options `channel`, `style`, `image` (upload) or `url`, `remove_image`, `card`, `details` (`False` hides the member info line / profile fields), `edit_message:True` (opens the text popup); run it with no options to preview the welcome message.
   Every welcome comes with a **welcome card** made fresh for the new member - the dark "Member #N" card with their avatar and name (`welcome_card.py`, drawn on `assets/welcome_card_template.png`).
   `/welcome card:False` turns it off (the server's welcome `image`/`url`, if any, is used instead; also used if a card can't be made). For the exact original look put `Raleway-Bold.ttf` and
   `Raleway-SemiBold.ttf` (free from Google Fonts) in `assets/fonts/`; without them it uses a system font.
