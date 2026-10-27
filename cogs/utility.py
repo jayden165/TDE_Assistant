@@ -10,6 +10,7 @@ import config
 import command_perms
 import database as db
 import guild_config as gc
+import welcome_card
 from permissions import owner_ids, is_owner as _is_owner_id, get_prefixes
 
 # Rules are per-server and start out unset — there is no default/hardcoded rules
@@ -73,6 +74,7 @@ class RulesLinkView(discord.ui.View):
 
 WELCOME_MESSAGE_KEY = "welcome_message"
 WELCOME_IMAGE_URL_KEY = "welcome_image_url"
+WELCOME_CARD_KEY = "welcome_card"  # per-member "Member #N" card; on unless set to "off"
 MAX_WELCOME_IMAGE_BYTES = 8 * 1024 * 1024
 _IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".gif", ".webp")
 
@@ -110,6 +112,21 @@ def _welcome_image(guild_id: int):
         return discord.File(path, filename=name), f"attachment://{name}"
     url = db.get_setting(guild_id, WELCOME_IMAGE_URL_KEY)
     return None, url or None
+
+
+def welcome_card_enabled(guild_id: int) -> bool:
+    return (db.get_setting(guild_id, WELCOME_CARD_KEY) or "on") != "off"
+
+
+async def _welcome_media(member: discord.Member):
+    """(discord.File | None, image_url | None) for this member's welcome: a card made fresh for
+    them (name, avatar, member #), or - if cards are off or one can't be made - the server's
+    normal welcome image."""
+    if welcome_card_enabled(member.guild.id):
+        file = await welcome_card.build_card_file(member)
+        if file is not None:
+            return file, f"attachment://{welcome_card.CARD_FILENAME}"
+    return _welcome_image(member.guild.id)
 
 
 def preview_kwargs(header: str, payload: dict) -> dict:
@@ -225,7 +242,7 @@ def build_welcome_embed(member: discord.Member) -> discord.Embed:
     return embed
 
 
-def build_welcome_payload(member: discord.Member) -> dict:
+async def build_welcome_payload(member: discord.Member) -> dict:
     """kwargs for channel.send(...) for this server's chosen welcome style. Pings always go in
     the message content, because mentions inside an embed never notify anyone."""
     guild = member.guild
@@ -238,7 +255,7 @@ def build_welcome_payload(member: discord.Member) -> dict:
         ordinal = _ordinal(guild.member_count or 0)
         text += (f"\n-# {member} • ID `{member.id}` • Member **{ordinal}** • "
                  f"Account created {discord.utils.format_dt(member.created_at, 'R')}")
-        file, image = _welcome_image(guild.id)
+        file, image = await _welcome_media(member)
         if image and file is None:
             text += f"\n{image}"  # external image link: Discord shows it under the message
         if len(text) > 2000:
@@ -250,7 +267,7 @@ def build_welcome_payload(member: discord.Member) -> dict:
         return payload
 
     embed = build_welcome_embed(member)
-    file, image = _welcome_image(guild.id)
+    file, image = await _welcome_media(member)
     if image:
         embed.set_image(url=image)
     role_ids, allowed = welcome_pings(member, embed.description)
@@ -277,6 +294,7 @@ class WelcomeMessageModal(discord.ui.Modal, title="Set Welcome Message"):
             self.message.default = current[:1500]
 
     async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)  # making the welcome card takes a moment
         text = str(self.message.value or "").strip()
         if text:
             db.set_setting(interaction.guild_id, WELCOME_MESSAGE_KEY, text)
@@ -285,7 +303,7 @@ class WelcomeMessageModal(discord.ui.Modal, title="Set Welcome Message"):
             db.delete_setting(interaction.guild_id, WELCOME_MESSAGE_KEY)
             note = "Custom message cleared - the default message will be used."
 
-        payload = build_welcome_payload(interaction.user)
+        payload = await build_welcome_payload(interaction.user)
         preview_text = payload["content"] if "embed" not in payload else payload["embed"].description
         channel_id = db.get_setting(interaction.guild_id, "welcome_channel_id")
         where = (f"Posting in <#{channel_id}>." if channel_id
@@ -297,7 +315,7 @@ class WelcomeMessageModal(discord.ui.Modal, title="Set Welcome Message"):
                     + ". Turn on **Allow anyone to @mention this role** for them, or give me the "
                     "**Mention @everyone, @here and All Roles** permission.")
         header = f"{note} {where} Here's a preview using your profile:{warn}"
-        await interaction.response.send_message(**preview_kwargs(header, payload))
+        await interaction.followup.send(**preview_kwargs(header, payload))
 
 
 class SetRulesModal(discord.ui.Modal, title="Set Server Rules"):
@@ -518,6 +536,7 @@ class Utility(commands.Cog):
                            image="Upload an image for the welcome message",
                            url="...or a direct link to an image",
                            remove_image="Remove the current welcome image",
+                           card="Turn the per-member 'Member #N' welcome card on or off (default: on)",
                            edit_message="Open a popup to write the custom welcome message")
     @app_commands.choices(style=[
         app_commands.Choice(name="Embed", value="embed"),
@@ -525,7 +544,8 @@ class Utility(commands.Cog):
     ])
     async def welcome(self, interaction: discord.Interaction, channel: discord.TextChannel = None,
                       style: app_commands.Choice[str] = None, image: discord.Attachment = None,
-                      url: str = None, remove_image: bool = False, edit_message: bool = False):
+                      url: str = None, remove_image: bool = False, card: bool = None,
+                      edit_message: bool = False):
         if not is_admin_perm(interaction.user):
             return await interaction.response.send_message("you dont have the perms", ephemeral=True)
         gid = interaction.guild_id
@@ -548,6 +568,10 @@ class Utility(commands.Cog):
         if style is not None:
             db.set_setting(gid, WELCOME_STYLE_KEY, style.value)
             notes.append(f"✅ Welcomes will be sent as **{style.name.lower()}**.")
+        if card is not None:
+            db.set_setting(gid, WELCOME_CARD_KEY, "on" if card else "off")
+            notes.append("✅ Welcome card turned **on** - every new member gets their own card." if card
+                         else "✅ Welcome card turned **off** - the server's welcome image (if any) is used instead.")
         if remove_image:
             clear_welcome_image(gid)
             notes.append("🗑️ Welcome image removed.")
@@ -572,7 +596,8 @@ class Utility(commands.Cog):
         where = (f"Posting in <#{channel_id}>." if channel_id
                  else "No welcome channel is set yet - use `/welcome channel:#...`.")
         header = " ".join(notes + [where, "Preview:"]) if notes else f"Current welcome setup. {where} Preview:"
-        await interaction.response.send_message(**preview_kwargs(header, build_welcome_payload(interaction.user)))
+        await interaction.response.defer(ephemeral=True)  # making the welcome card takes a moment
+        await interaction.followup.send(**preview_kwargs(header, await build_welcome_payload(interaction.user)))
 
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member):
@@ -584,7 +609,7 @@ class Utility(commands.Cog):
             return
 
         try:
-            await channel.send(**build_welcome_payload(member))
+            await channel.send(**(await build_welcome_payload(member)))
         except discord.HTTPException:
             pass
 

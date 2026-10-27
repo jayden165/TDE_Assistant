@@ -78,7 +78,10 @@ Change it with `MEMBER_COMMAND_LIMIT` / `MEMBER_COMMAND_WINDOW` in `.env` (limit
 - **/insmp:** `/insmp` (owners only) opens a form to set a custom message. Anyone typing `<prefix>insmp` (e.g. `?insmp`, add the `?` prefix
   with `/prefix`) gets that message back. @everyone/role pings in it are suppressed. Leave the form blank to clear it.
 - **Channel utilities:** `/channel lock|slowmode|purge` (lock/slowmode are admin, purge is staff; `/channel lock time:off` unlocks)
-- **Welcomer:** `/welcome` with options `channel`, `style`, `image` (upload) or `url`, `remove_image`, `edit_message:True` (opens the text popup); run it with no options to preview the welcome message
+- **Welcomer:** `/welcome` with options `channel`, `style`, `image` (upload) or `url`, `remove_image`, `card`, `edit_message:True` (opens the text popup); run it with no options to preview the welcome message.
+  Every welcome comes with a **welcome card** made fresh for the new member - the dark "Member #N" card with their avatar and name (`welcome_card.py`, drawn on `assets/welcome_card_template.png`).
+  `/welcome card:False` turns it off (the server's welcome `image`/`url`, if any, is used instead; also used if a card can't be made). For the exact original look put `Raleway-Bold.ttf` and
+  `Raleway-SemiBold.ttf` (free from Google Fonts) in `assets/fonts/`; without them it uses a system font.
 - **Rules:** `/rules` shows them; admins use `/rules edit:True` to set or clear them
 - **Panels:** `/panel` posts the support dropdown (tickets / modmail) and `/panel customize:True` changes how it looks (title, text, colour, banner, placeholder in a form; `ticket_label`, `modmail_label`, `footer`, `thumbnail`, `show_list`, `reset:True` as options - posted panels update themselves); `/applications panel` posts the applications menu (add `customize:True` to restyle it). Ticket transcripts are saved on close.
 - **Applications:** one group, `/applications setup | list | panel` (`setup` with no name creates an application, with a name edits it, `delete:True` removes it; `panel` posts the menu, `panel customize:True` restyles it). `panel` posts an embed with **one button per application**. Pressing a button opens the
