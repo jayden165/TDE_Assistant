@@ -33,7 +33,7 @@ from permissions import is_owner
 OWNER_ONLY_DEFAULT = frozenset({"embed"})
 
 # Owner-only, always: no role rule (and no Discord permission) can open these up.
-STRICT_OWNER_ONLY = frozenset({"say", "insmp", "customcmd", "setchannel", "recording-end", "status"})
+STRICT_OWNER_ONLY = frozenset({"say", "insmp", "customcmd", "setchannel", "recording-end", "status", "restart"})
 
 # Hard-wired to the owner list / setup user in their own handlers; role rules can't change them.
 NOT_CONFIGURABLE = frozenset({"owner", "commandperms", "prefix", "set"}) | STRICT_OWNER_ONLY

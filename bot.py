@@ -42,8 +42,8 @@ EXTENSIONS = [
     "cogs.globalban",
     "cogs.status",
     "cogs.uploads",
-    "cogs.uploads",
     "cogs.settings_cmd",
+    "cogs.restart",
 ]
 
 # Commands hidden from anyone without the matching Discord permission (Discord's own
