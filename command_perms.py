@@ -11,8 +11,8 @@ How it works
   That replaces the command's built-in requirement (admin / staff), so it can be used to open a
   command up to a new rank *or* to lock it down to a smaller one.
 * If a command has NO rule it behaves as before, except the commands in OWNER_ONLY_DEFAULT
-  (/say-embed and /dm-embed), which are owner-only until an owner grants a role. /say and /dm are
-  stricter: owner-only always, and /commandperms can't change that (see STRICT_OWNER_ONLY).
+  (/embed), which is owner-only until an owner grants a role. /say is stricter:
+  owner-only always, and /commandperms can't change that (see STRICT_OWNER_ONLY).
 * Bot owners always pass.
 
 The gate runs in GatedTree.interaction_check for slash commands and from cogs/prefixcmds.py for text
@@ -26,13 +26,14 @@ import discord
 from discord import app_commands
 
 import database as db
+import ratelimit
 from permissions import is_owner
 
 # Owner-only until an owner explicitly grants roles with /commandperms.
-OWNER_ONLY_DEFAULT = frozenset({"say-embed", "dm-embed"})
+OWNER_ONLY_DEFAULT = frozenset({"embed"})
 
 # Owner-only, always: no role rule (and no Discord permission) can open these up.
-STRICT_OWNER_ONLY = frozenset({"say", "dm"})
+STRICT_OWNER_ONLY = frozenset({"say", "insmp", "customcmd", "setchannel", "recording-end", "status"})
 
 # Hard-wired to the owner list / setup user in their own handlers; role rules can't change them.
 NOT_CONFIGURABLE = frozenset({"owner", "commandperms", "prefix", "set"}) | STRICT_OWNER_ONLY
@@ -188,6 +189,11 @@ class GatedTree(app_commands.CommandTree):
         if decision == DENY:
             await interaction.response.send_message(NO_PERMS_MESSAGE, ephemeral=True)
             return False
+        if isinstance(interaction.user, discord.Member):
+            wait = ratelimit.check(interaction.user)  # normal members only; staff are exempt
+            if wait is not None:
+                await interaction.response.send_message(ratelimit.notice(wait), ephemeral=True)
+                return False
         if decision == ALLOW:
             set_granted(True)  # lives only for this interaction's task
         return True
@@ -196,3 +202,35 @@ class GatedTree(app_commands.CommandTree):
         if isinstance(error, app_commands.CheckFailure):
             return  # we already replied in interaction_check
         await super().on_error(interaction, error)
+
+
+# Commands that were merged or renamed: rules an owner saved for the old name move to the new one.
+# None = the command no longer exists in a form a role rule makes sense for, so the old rule is dropped.
+_RENAMED = {
+    "purge": "channel purge", "lock": "channel lock", "unlock": "channel unlock", "cooldown": "channel slowmode",
+    "say-embed": "embed", "dm-embed": "embed", "dm": "say", "untimeout": "timeout", "unmute": "mute",
+    "setrules": None, "antiraid-scamword add": "antiraid word-add", "antiraid-scamword remove": "antiraid word-remove",
+    "antiraid-scamword list": "antiraid word-list", "ticketpanel": "panel", "application-panel": "applications panel",
+    "debug-ping": "debug", "bot-info": "debug", "requestcmd": "customcmd request",
+}
+
+
+def migrate_renamed_rules():
+    """Run once at startup. Never overwrites a rule that already exists on the new name."""
+    conn = db.get_conn()
+    try:
+        rows = conn.execute("SELECT guild_id, key, value FROM settings WHERE key LIKE ?", (_PREFIX + "%",)).fetchall()
+        existing = {(r["guild_id"], r["key"]) for r in rows}
+        for r in rows:
+            old = r["key"][len(_PREFIX):]
+            if old not in _RENAMED:
+                continue
+            new = _RENAMED[old]
+            if new is not None and (r["guild_id"], _PREFIX + new) not in existing:
+                conn.execute("INSERT INTO settings (guild_id, key, value) VALUES (?, ?, ?) "
+                             "ON CONFLICT(guild_id, key) DO NOTHING", (r["guild_id"], _PREFIX + new, r["value"]))
+                existing.add((r["guild_id"], _PREFIX + new))
+            conn.execute("DELETE FROM settings WHERE guild_id=? AND key=?", (r["guild_id"], r["key"]))
+        conn.commit()
+    finally:
+        conn.close()

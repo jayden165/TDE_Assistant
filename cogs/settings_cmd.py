@@ -75,7 +75,9 @@ class SettingsCommand(commands.Cog):
         self.bot = bot
 
     def _current(self, key: str):
-        _label, env, _kind = SETTINGS[key]
+        _label, env, kind = SETTINGS[key]
+        if kind in ("channel", "role", "category") and config.GUILD_ID:
+            return gc.get(config.GUILD_ID, key) or None  # includes choices made with /setchannel or /log-aio
         return getattr(config, env, None)
 
     def _describe(self, key: str) -> str:

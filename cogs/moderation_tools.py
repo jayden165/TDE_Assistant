@@ -19,7 +19,7 @@ def is_admin_perm(member: discord.Member) -> bool:
 
 
 # =====================================================================================
-# /say and /dm embed modals
+# /embed modal
 # =====================================================================================
 
 MAX_MESSAGE_LENGTH = 2000
@@ -55,89 +55,93 @@ class EmbedModal(discord.ui.Modal, title="Compose Embed"):
         await self._callback(interaction, embed)
 
 
-class TimeoutModal(discord.ui.Modal, title="Timeout Member"):
-    def __init__(self, member: discord.Member):
-        super().__init__()
-        self.member = member
-        self.minutes = discord.ui.TextInput(label="Duration (minutes)", max_length=6, placeholder="60")
-        self.reason = discord.ui.TextInput(label="Reason", style=discord.TextStyle.paragraph, required=False, max_length=300)
-        self.add_item(self.minutes)
-        self.add_item(self.reason)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        try:
-            minutes = int(str(self.minutes.value).strip())
-        except ValueError:
-            return await interaction.response.send_message("Duration must be a whole number of minutes.", ephemeral=True)
-
-        reason = str(self.reason.value).strip() if self.reason.value else "No reason given"
-        until = discord.utils.utcnow() + datetime.timedelta(minutes=minutes)
-        try:
-            await self.member.timeout(until, reason=f"Timed out by {interaction.user}: {reason}")
-        except discord.Forbidden:
-            return await interaction.response.send_message(
-                "Couldn't apply the timeout — check my permissions/role hierarchy.", ephemeral=True,
-            )
-        db.add_infraction(interaction.guild_id, self.member.id, "timeout", f"{minutes}m — {reason}", interaction.user.id)
-        await interaction.response.send_message(f"{self.member.mention} timed out for {minutes} minute(s).", ephemeral=True)
-
-
 # =====================================================================================
 # Moderation panel
 # =====================================================================================
 
+# =====================================================================================
+# Moderation panel
+# =====================================================================================
+# Every button runs the same code as the matching slash command (cogs/punishments.py), so the panel
+# gets the same hierarchy checks, DM to the member, infraction record and staff action log entry.
+
+class ActionModal(discord.ui.Modal):
+    """Asks for a reason (and a duration for timeouts), then runs the command on the member."""
+
+    def __init__(self, action: str, member: discord.Member):
+        super().__init__(title=f"{action.title()} {member.display_name}"[:45])
+        self.action, self.member = action, member
+        self.duration = None
+        if action == "timeout":
+            self.duration = discord.ui.TextInput(label="Duration (10m, 2h, 1d - or 'off' to end it)", max_length=20,
+                                                 default="1h")
+            self.add_item(self.duration)
+        self.reason = discord.ui.TextInput(label="Reason" + ("" if action == "warn" else " (optional)"),
+                                           style=discord.TextStyle.paragraph, max_length=300,
+                                           required=(action == "warn"))
+        self.add_item(self.reason)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        cog = interaction.client.get_cog("Punishments")
+        if cog is None:
+            return await interaction.response.send_message("The moderation commands aren't loaded right now.", ephemeral=True)
+        reason = str(self.reason.value).strip() or "No reason given"
+        member = self.member
+        if self.action == "timeout":
+            await cog.timeout.callback(cog, interaction, member, str(self.duration.value).strip(), reason)
+        elif self.action == "mute":
+            await cog.mute.callback(cog, interaction, member, reason)
+        elif self.action == "warn":
+            await cog.warn.callback(cog, interaction, member, reason)
+        elif self.action == "kick":
+            await cog.kick.callback(cog, interaction, member, reason)
+        elif self.action == "ban":
+            await cog.ban.callback(cog, interaction, member, reason)
+
+
 class ModerationPanelView(discord.ui.View):
-    def __init__(self, member: discord.Member):
+    def __init__(self, member: discord.Member, opener_id: int):
         super().__init__(timeout=300)
-        self.member = member
+        self.member, self.opener_id = member, opener_id
 
-    @discord.ui.button(label="Timeout", style=discord.ButtonStyle.secondary, emoji="⏱️")
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.opener_id:
+            await interaction.response.send_message("This panel belongs to someone else - run `/moderation-panel` yourself.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="Warn", style=discord.ButtonStyle.secondary, emoji="⚠️", row=0)
+    async def warn_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(ActionModal("warn", self.member))
+
+    @discord.ui.button(label="Timeout", style=discord.ButtonStyle.secondary, emoji="⏱️", row=0)
     async def timeout_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(TimeoutModal(self.member))
+        await interaction.response.send_modal(ActionModal("timeout", self.member))
 
-    @discord.ui.button(label="Mute", style=discord.ButtonStyle.secondary, emoji="🔇")
+    @discord.ui.button(label="Mute / Unmute", style=discord.ButtonStyle.secondary, emoji="🔇", row=0)
     async def mute_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        mute_role_id = gc.get(interaction.guild_id, "mute-role")
-        if not mute_role_id:
-            return await interaction.response.send_message("The mute role isn't configured yet — set MUTE_ROLE_ID in .env.", ephemeral=True)
-        role = interaction.guild.get_role(mute_role_id)
-        if not role:
-            return await interaction.response.send_message("The configured mute role wasn't found in this server.", ephemeral=True)
-        try:
-            await self.member.add_roles(role, reason=f"Muted by {interaction.user} via moderation panel")
-        except discord.Forbidden:
-            return await interaction.response.send_message("Couldn't add the mute role — check my permissions.", ephemeral=True)
-        db.add_infraction(interaction.guild_id, self.member.id, "mute", "Muted via moderation panel", interaction.user.id)
-        await interaction.response.send_message(f"🔇 {self.member.mention} has been muted.", ephemeral=True)
+        await interaction.response.send_modal(ActionModal("mute", self.member))
 
-    @discord.ui.button(label="Kick", style=discord.ButtonStyle.danger, emoji="👢")
+    @discord.ui.button(label="Kick", style=discord.ButtonStyle.danger, emoji="👢", row=1)
     async def kick_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        try:
-            await self.member.kick(reason=f"Kicked by {interaction.user} via moderation panel")
-        except discord.Forbidden:
-            return await interaction.response.send_message("Couldn't kick — check my permissions/role hierarchy.", ephemeral=True)
-        db.add_infraction(interaction.guild_id, self.member.id, "kick", "Kicked via moderation panel", interaction.user.id)
-        await interaction.response.send_message(f"👢 {self.member.mention} has been kicked.", ephemeral=True)
+        await interaction.response.send_modal(ActionModal("kick", self.member))
 
-    @discord.ui.button(label="Ban", style=discord.ButtonStyle.danger, emoji="🔨")
+    @discord.ui.button(label="Ban", style=discord.ButtonStyle.danger, emoji="🔨", row=1)
     async def ban_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        try:
-            await self.member.ban(reason=f"Banned by {interaction.user} via moderation panel", delete_message_seconds=0)
-        except discord.Forbidden:
-            return await interaction.response.send_message("Couldn't ban — check my permissions/role hierarchy.", ephemeral=True)
-        db.add_infraction(interaction.guild_id, self.member.id, "ban", "Banned via moderation panel", interaction.user.id)
-        await interaction.response.send_message(f"🔨 {self.member.mention} has been banned.", ephemeral=True)
+        await interaction.response.send_modal(ActionModal("ban", self.member))
 
-    @discord.ui.button(label="View Logs", style=discord.ButtonStyle.primary, emoji="📜")
+    @discord.ui.button(label="View Logs", style=discord.ButtonStyle.primary, emoji="📜", row=1)
     async def logs_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         rows = db.get_infractions(interaction.guild_id, self.member.id)
         if not rows:
             return await interaction.response.send_message(f"{self.member.mention} has no moderation history.", ephemeral=True)
         desc = "\n".join(
-            f"**{r['type'].title()}** — {r['reason']} (<t:{int(r['created_at'])}:R>, by <@{r['staff_id']}>)"
+            f"{INFRACTION_EMOJI.get(r['type'], '•')} **{r['type'].title()}** - {r['reason']} "
+            f"(<t:{int(r['created_at'])}:R>, by <@{r['staff_id']}>)"
             for r in rows
         )
-        embed = discord.Embed(title=f"Moderation Log: {self.member.display_name}", description=desc[:4000], color=discord.Color.orange())
+        embed = discord.Embed(title=f"Moderation Log: {self.member.display_name}", description=desc[:4000],
+                              color=discord.Color.orange())
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
@@ -177,7 +181,7 @@ class ModerationTools(commands.Cog):
 
     async def _log_staff_action(self, interaction: discord.Interaction, title: str, where_label: str,
                                 where_value: str, content: str, status: str = "Sent"):
-        """Posts a /say or /dm record to the staff action log channel (if one is configured).
+        """Posts a /say record to the staff action log channel (if one is configured).
         Never raises - a logging problem must not break the command itself."""
         try:
             channel = self.bot.get_channel(gc.get(interaction.guild_id, "staff-action-log-channel"))
@@ -198,18 +202,31 @@ class ModerationTools(commands.Cog):
 
     # ---------------- /say ----------------
 
-    @app_commands.command(name="say", description="[Owner] Send a plain message to a channel")
+    @app_commands.command(name="say", description="[Owner] Send a plain message to a channel - or DM it to a member")
     @app_commands.describe(
         message="What to send",
         channel="Channel to send to (defaults to this channel)",
+        user="DM it to this member instead of posting in a channel",
     )
-    async def say(self, interaction: discord.Interaction, message: str, channel: discord.TextChannel = None):
+    async def say(self, interaction: discord.Interaction, message: str, channel: discord.TextChannel = None,
+                  user: discord.Member = None):
         if not is_owner(interaction.user.id):
             return await interaction.response.send_message("you dont have the perms", ephemeral=True)
         if len(message) > MAX_MESSAGE_LENGTH:
             return await interaction.response.send_message(
                 f"That message is too long - it has to fit in {MAX_MESSAGE_LENGTH} characters.", ephemeral=True,
             )
+        if user is not None:  # DM mode
+            try:
+                await user.send(message)
+            except discord.HTTPException:
+                await interaction.response.send_message(f"Couldn't DM {user.mention} — their DMs may be closed.", ephemeral=True)
+                return await self._log_staff_action(
+                    interaction, "✉️ /say (DM)", "Recipient", f"{user.mention} ({user.id})", message, status="Failed (DMs closed)",
+                )
+            await interaction.response.send_message(f"DM sent to {user.mention}.", ephemeral=True)
+            return await self._log_staff_action(interaction, "✉️ /say (DM)", "Recipient", f"{user.mention} ({user.id})", message)
+
         target = channel or interaction.channel
         try:
             await target.send(message)
@@ -223,71 +240,62 @@ class ModerationTools(commands.Cog):
         await interaction.response.send_message(f"Sent to {target.mention}.", ephemeral=True)
         await self._log_staff_action(interaction, "💬 /say", "Channel", target.mention, message)
 
-    @app_commands.command(name="say-embed", description="[Admin] Send an embed to a channel via a popup form")
-    @app_commands.describe(channel="Channel to send to (defaults to this channel)")
-    async def say_embed(self, interaction: discord.Interaction, channel: discord.TextChannel = None):
+    # ---------------- /embed ----------------
+
+    @app_commands.command(name="embed", description="[Admin] Send an embed (popup form) to a channel - or DM it to a member")
+    @app_commands.describe(channel="Channel to send to (defaults to this channel)",
+                           user="DM it to this member instead of posting in a channel")
+    async def embed(self, interaction: discord.Interaction, channel: discord.TextChannel = None,
+                    user: discord.Member = None):
         if not is_admin_perm(interaction.user):
             return await interaction.response.send_message("you dont have the perms", ephemeral=True)
         target = channel or interaction.channel
 
-        async def send_it(modal_interaction: discord.Interaction, embed: discord.Embed):
-            await target.send(embed=embed)
-            await modal_interaction.response.send_message(f"Sent to {target.mention}.", ephemeral=True)
-
-        await interaction.response.send_modal(EmbedModal(send_it))
-
-    # ---------------- /dm ----------------
-
-    @app_commands.command(name="dm", description="[Owner] DM a plain message to a user")
-    async def dm(self, interaction: discord.Interaction, user: discord.Member, message: str):
-        if not is_owner(interaction.user.id):
-            return await interaction.response.send_message("you dont have the perms", ephemeral=True)
-        if len(message) > MAX_MESSAGE_LENGTH:
-            return await interaction.response.send_message(
-                f"That message is too long - it has to fit in {MAX_MESSAGE_LENGTH} characters.", ephemeral=True,
-            )
-        try:
-            await user.send(message)
-        except discord.HTTPException:
-            await interaction.response.send_message(f"Couldn't DM {user.mention} — their DMs may be closed.", ephemeral=True)
-            return await self._log_staff_action(
-                interaction, "✉️ /dm", "Recipient", f"{user.mention} ({user.id})", message, status="Failed (DMs closed)",
-            )
-        await interaction.response.send_message(f"DM sent to {user.mention}.", ephemeral=True)
-        await self._log_staff_action(interaction, "✉️ /dm", "Recipient", f"{user.mention} ({user.id})", message)
-
-    @app_commands.command(name="dm-embed", description="[Admin] DM an embed to a user via a popup form")
-    async def dm_embed(self, interaction: discord.Interaction, user: discord.Member):
-        if not is_admin_perm(interaction.user):
-            return await interaction.response.send_message("you dont have the perms", ephemeral=True)
-
-        async def send_it(modal_interaction: discord.Interaction, embed: discord.Embed):
+        async def send_it(modal_interaction: discord.Interaction, built: discord.Embed):
+            if user is not None:
+                try:
+                    await user.send(embed=built)
+                except discord.HTTPException:
+                    return await modal_interaction.response.send_message(
+                        f"Couldn't DM {user.mention} — their DMs may be closed.", ephemeral=True)
+                return await modal_interaction.response.send_message(f"DM sent to {user.mention}.", ephemeral=True)
             try:
-                await user.send(embed=embed)
-                await modal_interaction.response.send_message(f"DM sent to {user.mention}.", ephemeral=True)
+                await target.send(embed=built)
             except discord.HTTPException:
-                await modal_interaction.response.send_message(f"Couldn't DM {user.mention} — their DMs may be closed.", ephemeral=True)
+                return await modal_interaction.response.send_message(
+                    f"Couldn't send to {target.mention} - check my permissions there.", ephemeral=True)
+            await modal_interaction.response.send_message(f"Sent to {target.mention}.", ephemeral=True)
 
         await interaction.response.send_modal(EmbedModal(send_it))
 
     # ---------------- /moderation-panel ----------------
 
     @app_commands.command(name="moderation-panel", description="[Admin] Open a moderation panel for a member")
+    @app_commands.describe(member="The member to moderate")
     async def moderation_panel(self, interaction: discord.Interaction, member: discord.Member):
         if not is_admin_perm(interaction.user):
             return await interaction.response.send_message("you dont have the perms", ephemeral=True)
 
-        role_list = ", ".join(r.mention for r in member.roles if r.name != "@everyone") or "None"
+        roles = [r.mention for r in reversed(member.roles) if not r.is_default()]
         embed = discord.Embed(title=f"Moderation Panel: {member.display_name}", color=discord.Color.blurple())
         embed.set_thumbnail(url=member.display_avatar.url)
         embed.add_field(name="User", value=f"{member.mention} ({member})", inline=False)
         embed.add_field(name="ID", value=str(member.id), inline=True)
+        embed.add_field(name="Account created", value=discord.utils.format_dt(member.created_at, "R"), inline=True)
         if member.joined_at:
             embed.add_field(name="Joined", value=discord.utils.format_dt(member.joined_at, "R"), inline=True)
-        embed.add_field(name="Roles", value=role_list[:1024], inline=False)
+        status = []
+        if member.timed_out_until and member.timed_out_until > discord.utils.utcnow():
+            status.append(f"⏱️ Timed out until {discord.utils.format_dt(member.timed_out_until, 'R')}")
+        mute_role = interaction.guild.get_role(gc.get(interaction.guild.id, "mute-role") or 0)
+        if mute_role and mute_role in member.roles:
+            status.append("🔇 Muted")
+        embed.add_field(name="Status", value="\n".join(status) or "✅ No active punishments", inline=False)
+        embed.add_field(name="Past actions", value=f"{len(db.get_infractions(interaction.guild.id, member.id))} on record", inline=True)
+        embed.add_field(name="Roles", value=(" ".join(roles) or "None")[:1024], inline=False)
+        embed.set_footer(text="Buttons use the same rules as /ban, /kick, /timeout, /mute and /warn.")
 
-        await interaction.response.send_message(embed=embed, view=ModerationPanelView(member), ephemeral=True)
-
+        await interaction.response.send_message(embed=embed, view=ModerationPanelView(member, interaction.user.id), ephemeral=True)
 
     # ---------------- /infractions ----------------
 

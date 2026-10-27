@@ -17,19 +17,23 @@ CHANNEL_SETTINGS = {
     "application-denied-channel": ("Applications Denied Channel", "APPLICATION_DENIED_CHANNEL_ID", None),
     "ticket-panel": ("Ticket Panel Channel", "TICKET_PANEL_CHANNEL_ID", None),
     "transcript-channel": ("Transcript Channel", "TRANSCRIPT_CHANNEL_ID", None),
+    "modmail-log-channel": ("Modmail Log Channel (transcripts)", "MODMAIL_LOG_CHANNEL_ID", None),
     "staff-action-log-channel": ("Staff Action Log Channel", "STAFF_ACTION_LOG_CHANNEL_ID", None),
     "honeypot-log-channel": ("Honeypot Log Channel (default)", "HONEYPOT_LOG_CHANNEL_ID", None),
     "antiraid-log-channel": ("Anti-Raid Log Channel", "ANTIRAID_LOG_CHANNEL_ID", None),
+    "youtube-channel": ("YouTube Updates Channel (new uploads)", "YOUTUBE_UPDATES_CHANNEL_ID", None),
 }
 
 ROLE_SETTINGS = {
     "staff-role": ("Staff Role", "STAFF_ROLE_ID"),
     "admin-role": ("Admin Role", "ADMIN_ROLE_ID"),
     "mute-role": ("Mute Role", "MUTE_ROLE_ID"),
+    "youtube-ping-role": ("YouTube Ping Role (optional)", "YOUTUBE_PING_ROLE_ID"),
 }
 
 CATEGORY_SETTINGS = {
     "ticket-category": ("Ticket Category", "TICKET_CATEGORY_ID"),
+    "modmail-category": ("Modmail Category (falls back to the ticket category)", "MODMAIL_CATEGORY_ID"),
 }
 
 # Log channels that fall back to another one when they aren't configured, so a server that
@@ -37,6 +41,8 @@ CATEGORY_SETTINGS = {
 LOG_FALLBACKS = {
     "mod-log-channel": "log-channel",
     "antiraid-log-channel": "log-channel",
+    "staff-action-log-channel": "log-channel",
+    "modmail-log-channel": "transcript-channel",
 }
 
 ALL_ID_SETTINGS = {**CHANNEL_SETTINGS, **ROLE_SETTINGS, **CATEGORY_SETTINGS}

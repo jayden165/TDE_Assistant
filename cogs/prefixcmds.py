@@ -12,8 +12,19 @@ starts with one runs the matching slash command, with the arguments typed after 
 Commands run through the very same handlers as the slash versions, so every permission check
 still applies. Because there's no ephemeral reply in a text message, "only you can see this"
 replies are sent to the user's DMs (short ones appear in the channel and delete themselves).
-Commands that open a pop-up form (/setrules, /say-embed, /dm-embed, /welcome message,
-/applications create) need the slash version.
+Commands that open a pop-up form (/rules edit, /embed, /welcome message,
+/applications) need the slash version.
+
+Moderation commands (cogs/punishments.py) take a user mention or raw ID, then the reason:
+
+    s! ban 123456789012345678 advertising
+    s! timeout 123456789012345678 1h spamming
+
+"<prefix>help" lists the commands you can use (cogs/prefix_help.py); "<prefix>help ban" explains one.
+Owners can add simple text commands with /customcmd (cogs/custom_commands.py); they run like any other.
+
+/insmp (owners) opens a form to set a custom message. Anyone can then type "<prefix>insmp"
+(e.g. "?insmp" or "s! insmp") and the bot replies with that message.
 """
 import logging
 
@@ -23,12 +34,23 @@ from discord.ext import commands
 
 import command_perms
 import config
+import database as db
 import permissions
+import ratelimit
+from cogs.custom_commands import get_custom, send_custom
 
 OT = discord.AppCommandOptionType
 
 SHORT_REPLY = 200      # ephemeral text up to this long is posted in the channel, then deleted
 SHORT_REPLY_TTL = 12   # seconds
+
+# Short forms for commands that now live inside a group, so "s! purge 20 spam" still works.
+PREFIX_ALIASES = {"purge": "channel purge", "lock": "channel lock", "unlock": "channel unlock",
+                  "slowmode": "channel slowmode", "cooldown": "channel slowmode"}
+
+INSMP_NAME = "insmp"
+INSMP_KEY = "insmp_message"
+INSMP_MAX = 2000       # a plain Discord message can't be longer
 
 
 # ---------------------------------------------------------------------------------------
@@ -75,6 +97,8 @@ class _Followup:
 
 
 class PrefixInteraction:
+    is_prefix = True  # lets cogs tell a text command from a real slash interaction
+
     def __init__(self, ctx: commands.Context, command):
         self._ctx = ctx
         self._last = None
@@ -215,11 +239,42 @@ async def convert(ctx: commands.Context, param: app_commands.Parameter, token: s
     raise ArgError(f"`{param.display_name}` can't be given in a text command - use the slash command.")
 
 
+def error_embed(text: str, title: str = "❌ Couldn't do that") -> discord.Embed:
+    return discord.Embed(title=title, description=text, color=discord.Color.red())
+
+
 def usage(prefix: str, cmd) -> str:
     parts = []
     for p in cmd.parameters:
         parts.append(f"<{p.display_name}>" if p.required else f"[{p.display_name}]")
     return f"{prefix}{cmd.qualified_name} " + " ".join(parts)
+
+
+class InsmpModal(discord.ui.Modal, title="Set the ?insmp message"):
+    message = discord.ui.TextInput(
+        label="Message",
+        style=discord.TextStyle.paragraph,
+        max_length=INSMP_MAX,
+        required=False,
+        placeholder="What the bot says when someone types the prefix + insmp. Leave blank to clear it.",
+    )
+
+    def __init__(self, current: str | None):
+        super().__init__()
+        if current:
+            self.message.default = current
+
+    async def on_submit(self, interaction: discord.Interaction):
+        text = str(self.message.value).strip()
+        if text:
+            db.set_setting(interaction.guild_id, INSMP_KEY, text)
+            prefixes = permissions.get_prefixes()
+            hint = (f"Anyone can now type `{prefixes[0]}{INSMP_NAME}` to get it." if prefixes
+                    else "Add a prefix with `/prefix action:Add prefix:?` so people can trigger it with `?insmp`.")
+            await interaction.response.send_message(f"✅ Message saved. {hint}", ephemeral=True)
+        else:
+            db.delete_setting(interaction.guild_id, INSMP_KEY)
+            await interaction.response.send_message("🗑️ Message cleared.", ephemeral=True)
 
 
 class PrefixCommands(commands.Cog):
@@ -263,6 +318,31 @@ class PrefixCommands(commands.Cog):
                    else f"`{prefix}` isn't a prefix.")
         await interaction.response.send_message(msg, ephemeral=True)
 
+    # ---------------- /insmp (owners) ----------------
+
+    @app_commands.command(name="insmp", description="[Owner] Set the message the bot sends when someone types <prefix>insmp")
+    async def insmp(self, interaction: discord.Interaction):
+        if not permissions.is_owner(interaction.user.id):
+            return await interaction.response.send_message(command_perms.NO_PERMS_MESSAGE, ephemeral=True)
+        if interaction.guild is None:
+            return await interaction.response.send_message("Use this in the server.", ephemeral=True)
+        current = db.get_setting(interaction.guild.id, INSMP_KEY)
+        await interaction.response.send_modal(InsmpModal(current))
+
+    async def send_insmp(self, message: discord.Message):
+        text = db.get_setting(message.guild.id, INSMP_KEY)
+        if not text:
+            return await message.reply("That message hasn't been set up yet.", mention_author=False,
+                                       delete_after=SHORT_REPLY_TTL)
+        no_pings = discord.AllowedMentions(everyone=False, roles=False)
+        try:
+            await message.reply(text, mention_author=False, allowed_mentions=no_pings)
+        except discord.HTTPException:
+            try:  # e.g. the trigger message was deleted already
+                await message.channel.send(text, allowed_mentions=no_pings)
+            except discord.HTTPException:
+                pass
+
     # ---------------- message handling ----------------
 
     @commands.Cog.listener()
@@ -279,22 +359,55 @@ class PrefixCommands(commands.Cog):
                     await self.run(message, prefix, rest)
                 return
 
+    async def _slowed_down(self, message: discord.Message) -> bool:
+        """Normal members get a command rate limit (staff are exempt). True = block this command."""
+        wait = ratelimit.check(message.author)
+        if wait is None:
+            return False
+        await message.reply(embed=discord.Embed(description=ratelimit.notice(wait), color=discord.Color.orange()),
+                            mention_author=False, delete_after=8)
+        return True
+
     async def run(self, message: discord.Message, prefix: str, text: str):
+        head = text.split(None, 1)
+        if head and head[0].lower() in PREFIX_ALIASES and self.bot.tree.get_command(head[0].lower()) is None:
+            text = PREFIX_ALIASES[head[0].lower()] + (" " + head[1] if len(head) > 1 else "")
         tokens = tokenize(text)
-        cmd = self.bot.tree.get_command(tokens[0][0].lower())
+        first = tokens[0][0].lower()
+        if first in ("help", "commands"):
+            if await self._slowed_down(message):
+                return
+            helper = self.bot.get_cog("PrefixHelp")
+            if helper is not None:
+                return await helper.show(message, prefix, [t for t, _ in tokens[1:]])
+        if first == INSMP_NAME:
+            # Open to everyone: typing <prefix>insmp posts the message an owner saved with /insmp.
+            if await self._slowed_down(message):
+                return
+            return await self.send_insmp(message)
+        cmd = self.bot.tree.get_command(first)
         if cmd is None:
+            custom = get_custom(message.guild.id, first)
+            if custom is not None:  # a custom command made with /customcmd
+                if await self._slowed_down(message):
+                    return
+                args = text[tokens[1][1]:].strip() if len(tokens) > 1 else ""
+                return await send_custom(message, custom, args)
             return  # not one of our commands - ignore, it's just chat
         idx = 1
         while isinstance(cmd, app_commands.Group):
             sub = cmd.get_command(tokens[idx][0].lower()) if idx < len(tokens) else None
             if sub is None:
                 names = " | ".join(c.name for c in cmd.commands)
-                return await message.reply(f"Usage: `{prefix}{cmd.qualified_name} <{names}>`", mention_author=False)
+                return await message.reply(
+                    embed=error_embed(f"`{prefix}{cmd.qualified_name} <{names}>`", "ℹ️ Usage"), mention_author=False)
             cmd, idx = sub, idx + 1
 
         decision = command_perms.evaluate(message.author, message.guild.id, cmd.qualified_name)
         if decision == command_perms.DENY:
-            return await message.reply(command_perms.NO_PERMS_MESSAGE, mention_author=False)
+            return await message.reply(embed=error_embed(command_perms.NO_PERMS_MESSAGE), mention_author=False)
+        if await self._slowed_down(message):
+            return
 
         ctx = await self.bot.get_context(message)
         kwargs = {}
@@ -303,7 +416,7 @@ class PrefixCommands(commands.Cog):
             for n, param in enumerate(params):
                 if idx >= len(tokens):
                     if param.required:
-                        raise ArgError(f"Usage: `{usage(prefix, cmd)}`")
+                        raise ArgError(f"`{usage(prefix, cmd)}`")
                     break
                 if param.type is OT.attachment:
                     if not message.attachments:
@@ -326,9 +439,9 @@ class PrefixCommands(commands.Cog):
                     kwargs[param.name] = message.attachments[0]
             for param in params:
                 if param.required and param.name not in kwargs:
-                    raise ArgError(f"Usage: `{usage(prefix, cmd)}`")
+                    raise ArgError(f"`{usage(prefix, cmd)}`")
         except ArgError as e:
-            return await message.reply(str(e), mention_author=False)
+            return await message.reply(embed=error_embed(str(e), "ℹ️ Usage"), mention_author=False)
 
         shim = PrefixInteraction(ctx, cmd)
         token = command_perms.set_granted(decision == command_perms.ALLOW)
@@ -344,7 +457,7 @@ class PrefixCommands(commands.Cog):
                 await cmd.callback(shim, **kwargs)
         except Exception:
             logging.exception(f"Text command failed: {message.content!r}")
-            await message.reply("Something went wrong running that command.", mention_author=False)
+            await message.reply(embed=error_embed("Something went wrong running that command."), mention_author=False)
         finally:
             command_perms.reset_granted(token)
 

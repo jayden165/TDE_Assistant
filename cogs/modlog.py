@@ -2,7 +2,7 @@
 this bot's commands): bans, unbans, kicks, timeouts (and removals), and mute-role mutes.
 
 It listens to Discord's own events and reads the audit log to work out who did it and why, so a
-ban done from Discord's member menu, by another bot, or through /moderation-panel all show up the
+ban done from Discord's member menu, by another bot, or through /ban, /kick and friends all show up the
 same way. Logs go to the Moderation Log Channel (MOD_LOG_CHANNEL_ID in .env), falling back to the
 unified log channel if that isn't set.
 

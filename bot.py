@@ -32,6 +32,17 @@ EXTENSIONS = [
     "cogs.antiraid",
     "cogs.owner",
     "cogs.prefixcmds",
+    "cogs.punishments",
+    "cogs.log_aio",
+    "cogs.custom_commands",
+    "cogs.prefix_help",
+    "cogs.channel_settings",
+    "cogs.modmail",
+    "cogs.recordings",
+    "cogs.globalban",
+    "cogs.status",
+    "cogs.uploads",
+    "cogs.uploads",
     "cogs.settings_cmd",
 ]
 
@@ -40,15 +51,20 @@ EXTENSIONS = [
 # /owner is deliberately not listed: owners aren't necessarily administrators, and its
 # handler refuses everyone who isn't on the owner list.
 ADMIN_ONLY_COMMANDS = [
-    "role", "say-embed", "dm-embed", "moderation-panel",
-    "lock", "unlock", "cooldown", "welcome", "setrules", "bot-info",
-    "honeypot", "antiraid", "antiraid-scamword", "applications",
-    "debug", "debug-ping",
+    "role", "embed", "moderation-panel", "welcome", "honeypot", "antiraid",
+    "debug", "log-aio", "support-mode", "upload", "upload",
 ]
 
 MANAGE_MESSAGES_COMMANDS = [
-    "ticketpanel", "application-panel", "infractions", "purge",
+    "panel", "infractions", "channel", "applications", "recording-post", "recording-ban",
 ]
+
+
+# Moderation commands: hidden from anyone without the matching Discord permission.
+MODERATION_COMMAND_PERMS = {
+    "ban": "ban_members", "unban": "ban_members", "kick": "kick_members",
+    "timeout": "moderate_members", "warn": "moderate_members", "mute": "moderate_members",
+}
 
 
 class TDEAssistant(commands.Bot):
@@ -60,6 +76,7 @@ class TDEAssistant(commands.Bot):
 
     async def setup_hook(self):
         db.init_db()
+        command_perms.migrate_renamed_rules()
         failed = []
         for ext in EXTENSIONS:
             try:
@@ -91,6 +108,8 @@ class TDEAssistant(commands.Bot):
                     cmd.default_permissions = None
                 elif config.GUILD_ID and command_perms.has_any_rule(config.GUILD_ID, cmd.name):
                     cmd.default_permissions = None
+                elif cmd.name in MODERATION_COMMAND_PERMS:
+                    cmd.default_permissions = discord.Permissions(**{MODERATION_COMMAND_PERMS[cmd.name]: True})
                 elif cmd.name in ADMIN_ONLY_COMMANDS or cmd.name in command_perms.OWNER_ONLY_DEFAULT:
                     cmd.default_permissions = admin_perms
                 elif cmd.name in MANAGE_MESSAGES_COMMANDS:

@@ -327,11 +327,7 @@ class AntiRaid(commands.Cog):
         embed.set_footer(text="Staff, admins, and the bot owner are always immune.")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    scamword_group = app_commands.Group(
-        name="antiraid-scamword", description="[Admin] Manage the scam keyword list that triggers a kick",
-    )
-
-    @scamword_group.command(name="add", description="Add a keyword/phrase that triggers a scam kick")
+    @antiraid_group.command(name="word-add", description="Add a keyword/phrase that triggers a scam kick")
     @app_commands.describe(word="Text to match (case-insensitive substring match against message content)")
     async def scamword_add(self, interaction: discord.Interaction, word: str):
         if not is_admin_perm(interaction.user):
@@ -343,7 +339,7 @@ class AntiRaid(commands.Cog):
         save_keywords(interaction.guild_id, keywords)
         await interaction.response.send_message(f"✅ Added `{word}` to the scam keyword list.", ephemeral=True)
 
-    @scamword_group.command(name="remove", description="Remove a keyword/phrase from the scam kick list")
+    @antiraid_group.command(name="word-remove", description="Remove a keyword/phrase from the scam kick list")
     @app_commands.describe(word="The exact keyword/phrase to remove")
     async def scamword_remove(self, interaction: discord.Interaction, word: str):
         if not is_admin_perm(interaction.user):
@@ -356,7 +352,7 @@ class AntiRaid(commands.Cog):
         save_keywords(interaction.guild_id, keywords)
         await interaction.response.send_message(f"🗑️ Removed `{word}` from the scam keyword list.", ephemeral=True)
 
-    @scamword_group.command(name="list", description="List the scam keywords that trigger a kick")
+    @antiraid_group.command(name="word-list", description="List the scam keywords that trigger a kick")
     async def scamword_list(self, interaction: discord.Interaction):
         if not is_admin_perm(interaction.user):
             return await interaction.response.send_message("you dont have the perms", ephemeral=True)

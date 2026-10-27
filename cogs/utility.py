@@ -13,7 +13,7 @@ import guild_config as gc
 from permissions import owner_ids, is_owner as _is_owner_id, get_prefixes
 
 # Rules are per-server and start out unset — there is no default/hardcoded rules
-# text. Admins set them with /setrules, which saves to the settings table under
+# text. Admins set them with /rules edit:True, which saves to the settings table under
 # the "rules_text" key (see database.get_setting / database.set_setting).
 RULES_SETTING_KEY = "rules_text"
 
@@ -60,7 +60,7 @@ def parse_duration(text: str):
 
 def rules_embed(guild: discord.Guild) -> discord.Embed:
     text = db.get_setting(guild.id, RULES_SETTING_KEY)
-    description = text if text else "No rules have been set for this server yet. Ask an admin to run `/setrules`."
+    description = text if text else "No rules have been set for this server yet. Ask an admin to run `/rules edit:True`."
     return discord.Embed(title=f"📜 {guild.name} — Server Rules", description=description, color=discord.Color.blurple())
 
 
@@ -344,6 +344,10 @@ class Utility(commands.Cog):
             return is_admin_perm(member)
         if description.startswith("[Staff"):
             return is_staff(member)
+        if description.startswith("[Mod"):
+            perms = member.guild_permissions
+            return (is_owner(member) or command_perms.granted() or perms.administrator
+                    or perms.ban_members or perms.kick_members or perms.moderate_members)
         return True
 
     @app_commands.command(name="help", description="Show the commands you can use")
@@ -373,7 +377,8 @@ class Utility(commands.Cog):
             examples = ", ".join(f"`{p} rules`" for p in prefixes[:3])
             embed.add_field(
                 name="Text commands",
-                value=f"You can also type commands with a prefix instead of `/`, e.g. {examples}.",
+                value=f"You can also type commands with a prefix instead of `/`, e.g. {examples}. "
+                      f"Type `{prefixes[0]} help` to see them all.",
                 inline=False,
             )
         embed.set_footer(text="You only see the commands you have permission to use.")
@@ -390,23 +395,21 @@ class Utility(commands.Cog):
 
     # ---------------- /rules ----------------
 
-    @app_commands.command(name="rules", description="View the server rules")
-    async def rules(self, interaction: discord.Interaction):
+    @app_commands.command(name="rules", description="View the server rules (admins can edit them)")
+    @app_commands.describe(edit="Admins only: open a form to set or clear the rules")
+    async def rules(self, interaction: discord.Interaction, edit: bool = False):
+        if edit:
+            if not is_admin_perm(interaction.user):
+                return await interaction.response.send_message("you dont have the perms", ephemeral=True)
+            current = db.get_setting(interaction.guild_id, RULES_SETTING_KEY)
+            return await interaction.response.send_modal(SetRulesModal(current))
         await interaction.response.send_message(embed=rules_embed(interaction.guild), view=RulesLinkView(), ephemeral=True)
 
-    # ---------------- /setrules ----------------
+    # ---------------- /channel (lock, unlock, slowmode, purge) ----------------
 
-    @app_commands.command(name="setrules", description="[Admin] Set or clear this server's rules")
-    async def setrules(self, interaction: discord.Interaction):
-        if not is_admin_perm(interaction.user):
-            return await interaction.response.send_message("you dont have the perms", ephemeral=True)
+    channel_group = app_commands.Group(name="channel", description="[Staff] Lock, unlock, slow down or clean up a channel")
 
-        current = db.get_setting(interaction.guild_id, RULES_SETTING_KEY)
-        await interaction.response.send_modal(SetRulesModal(current))
-
-    # ---------------- /lock ----------------
-
-    @app_commands.command(name="lock", description="[Admin] Lock a channel so nobody can type")
+    @channel_group.command(name="lock", description="[Admin] Lock a channel so nobody can type")
     @app_commands.describe(
         time="How long to lock for (e.g. 30m, 2h, 1d, or 'infinite')",
         reason="Why the channel is being locked",
@@ -451,7 +454,7 @@ class Utility(commands.Cog):
         except discord.HTTPException:
             pass
 
-    @app_commands.command(name="unlock", description="[Admin] Unlock a previously locked channel")
+    @channel_group.command(name="unlock", description="[Admin] Unlock a previously locked channel")
     async def unlock(self, interaction: discord.Interaction, channel: discord.TextChannel = None):
         if not is_admin_perm(interaction.user):
             return await interaction.response.send_message("you dont have the perms", ephemeral=True)
@@ -463,11 +466,9 @@ class Utility(commands.Cog):
             return await interaction.response.send_message("I don't have permission to unlock that channel.", ephemeral=True)
         await interaction.response.send_message(f"Unlocked {target.mention}.", ephemeral=True)
 
-    # ---------------- /cooldown ----------------
-
-    @app_commands.command(name="cooldown", description="[Admin] Set this channel's slowmode")
+    @channel_group.command(name="slowmode", description="[Admin] Set a channel's slowmode (0 turns it off)")
     @app_commands.describe(time="Slowmode delay (e.g. 10s, 5m, or 0 to disable)")
-    async def cooldown(self, interaction: discord.Interaction, time: str, channel: discord.TextChannel = None):
+    async def slowmode(self, interaction: discord.Interaction, time: str, channel: discord.TextChannel = None):
         if not is_admin_perm(interaction.user):
             return await interaction.response.send_message("you dont have the perms", ephemeral=True)
 
@@ -484,9 +485,7 @@ class Utility(commands.Cog):
         msg = "Slowmode disabled." if seconds == 0 else f"Slowmode set to **{seconds}s**."
         await interaction.response.send_message(f"{msg} ({target.mention})", ephemeral=True)
 
-    # ---------------- /purge ----------------
-
-    @app_commands.command(name="purge", description="[Staff] Bulk-delete messages in this channel")
+    @channel_group.command(name="purge", description="[Staff] Bulk-delete messages in this channel")
     @app_commands.describe(number="How many messages to delete (1-100)", reason="Why you're purging")
     async def purge(self, interaction: discord.Interaction, number: app_commands.Range[int, 1, 100], reason: str):
         if not is_staff(interaction.user):
@@ -610,33 +609,6 @@ class Utility(commands.Cog):
             await channel.send(**build_welcome_payload(member))
         except discord.HTTPException:
             pass
-
-    # ---------------- /bot-info ----------------
-
-    @app_commands.command(name="bot-info", description="[Admin] View information about the bot")
-    async def botinfo_cmd(self, interaction: discord.Interaction):
-        if not is_admin_perm(interaction.user):
-            return await interaction.response.send_message("you dont have the perms", ephemeral=True)
-
-        import sys
-        app_info = await self.bot.application_info()
-        uptime = "Unknown"
-        if hasattr(self.bot, "start_time"):
-            delta = datetime.datetime.now(datetime.timezone.utc) - self.bot.start_time
-            hours, rem = divmod(int(delta.total_seconds()), 3600)
-            minutes, seconds = divmod(rem, 60)
-            uptime = f"{hours}h {minutes}m {seconds}s"
-
-        embed = discord.Embed(title=f"🤖 {self.bot.user.name}", color=discord.Color.blurple())
-        embed.set_thumbnail(url=self.bot.user.display_avatar.url)
-        embed.add_field(name="Bot ID", value=str(self.bot.user.id), inline=True)
-        embed.add_field(name="Owners", value=" ".join(f"<@{uid}>" for uid in sorted(owner_ids())), inline=True)
-        embed.add_field(name="Uptime", value=uptime, inline=True)
-        embed.add_field(name="Latency", value=f"{self.bot.latency * 1000:.0f}ms", inline=True)
-        embed.add_field(name="discord.py", value=discord.__version__, inline=True)
-        embed.add_field(name="Python", value=sys.version.split()[0], inline=True)
-        embed.add_field(name="Cogs Loaded", value=str(len(self.bot.cogs)), inline=True)
-        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 async def setup(bot: commands.Bot):

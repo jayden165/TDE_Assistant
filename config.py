@@ -30,6 +30,46 @@ def _str(name: str, default: str) -> str:
 TOKEN = _str("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 GUILD_ID = _int("GUILD_ID")  # the one server this bot runs in; commands sync there instantly (global sync if unset)
 
+# ---- Command rate limit (normal members only; staff/admins/owners are exempt) ----
+MEMBER_COMMAND_LIMIT = _int("MEMBER_COMMAND_LIMIT", 5)      # commands allowed per window; 0 turns the limit off
+MEMBER_COMMAND_WINDOW = _int("MEMBER_COMMAND_WINDOW", 30)   # window length in seconds
+
+# ---- Minecraft server (recordings: /recording-post, /recording-end) ----
+# RCON is how the bot whitelists people who sign up. Put the password ONLY in .env, never in the code.
+RCON_HOST = os.getenv("RCON_HOST", "")
+RCON_PORT = _int("RCON_PORT", 25575)
+RCON_PASSWORD = os.getenv("RCON_PASSWORD", "")
+RCON_ADD_COMMAND = os.getenv("RCON_ADD_COMMAND", "wl {username}")                    # sent to whitelist someone
+RCON_REMOVE_COMMAND = os.getenv("RCON_REMOVE_COMMAND", "whitelist remove {username}")  # sent by /recording-end
+RECORDING_ACTOR_ROLE_ID = _int("RECORDING_ACTOR_ROLE_ID", 1563819351034036224)        # given to actors who sign up
+
+# ---- YouTube upload notifier (/upload channel set) ----
+YOUTUBE_CHANNEL_HANDLE = os.getenv("YOUTUBE_CHANNEL_HANDLE", "@thedailyemeraldmc")
+YOUTUBE_CHANNEL_ID = os.getenv("YOUTUBE_CHANNEL_ID", "")        # optional; looked up from the handle if empty
+YOUTUBE_CHANNEL_NAME = os.getenv("YOUTUBE_CHANNEL_NAME", "The Daily Emerald")
+YOUTUBE_POLL_MINUTES = max(2, _int("YOUTUBE_POLL_MINUTES", 5))   # how often to check for new uploads
+YOUTUBE_UPDATES_CHANNEL_ID = _int("YOUTUBE_UPDATES_CHANNEL_ID")  # default channel (normally set with /upload channel set)
+YOUTUBE_PING_ROLE_ID = _int("YOUTUBE_PING_ROLE_ID")              # optional role to ping on uploads
+
+# ---- Global ban (a ban in any server the bot is in is mirrored to all the others) ----
+def _flag(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    return default if value is None or value.strip() == "" else value.strip().lower() in ("1", "true", "yes", "on")
+
+
+GLOBAL_BAN_ENABLED = _flag("GLOBAL_BAN_ENABLED", True)
+GLOBAL_UNBAN_ALL = _flag("GLOBAL_UNBAN_ALL", False)  # True: an unban anywhere lifts EVERY ban of that user, even ones a server made on its own
+
+# ---- YouTube upload notifications (/upload) ----
+YOUTUBE_CHANNEL_ID = os.getenv("YOUTUBE_CHANNEL_ID", "UCTHIdKaVTME8g-6KHcCW-Jg")     # The Daily Emerald
+YOUTUBE_CHANNEL_HANDLE = os.getenv("YOUTUBE_CHANNEL_HANDLE", "thedailyemeraldmc")
+YOUTUBE_CHANNEL_NAME = os.getenv("YOUTUBE_CHANNEL_NAME", "The Daily Emerald")
+YOUTUBE_POLL_MINUTES = _int("YOUTUBE_POLL_MINUTES", 5)
+
+# ---- Developer ----
+# Gets the DMs from /customcmd request. Falls back to the setup user in permissions.py if unset.
+DEV_USER_ID = _int("DEV_USER_ID")
+
 # ---- Bot owners ----
 # Managed in-bot with /owner (see permissions.py); the root owner is hardcoded there.
 
@@ -59,6 +99,10 @@ STAFF_ACTION_LOG_CHANNEL_ID = _int("STAFF_ACTION_LOG_CHANNEL_ID")  # purge log
 MUTE_ROLE_ID = _int("MUTE_ROLE_ID")
 
 RULES_URL = _str("RULES_URL", "")  # optional - if set, /rules adds a "View Full Rules" link button
+
+# ---- Modmail ----
+MODMAIL_CATEGORY_ID = _int("MODMAIL_CATEGORY_ID")            # where modmail channels are created (falls back to the ticket category)
+MODMAIL_LOG_CHANNEL_ID = _int("MODMAIL_LOG_CHANNEL_ID")      # transcripts of closed modmail (falls back to the transcript channel)
 
 # ---- Anti-raid ----
 ANTIRAID_LOG_CHANNEL_ID = _int("ANTIRAID_LOG_CHANNEL_ID")  # falls back to LOG_CHANNEL_ID if unset
