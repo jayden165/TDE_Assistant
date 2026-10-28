@@ -20,7 +20,23 @@ import database as db
 import guild_config as gc
 import permissions
 
-ENV_PATH = os.path.join(os.path.dirname(os.path.abspath(config.__file__)), ".env")
+_BOT_DIR = os.path.dirname(os.path.abspath(config.__file__))
+ENV_PATH = os.path.join(_BOT_DIR, ".env")
+
+
+def find_env_path() -> str:
+    """The env file /set should write to. Order: the ENV_FILE variable if you set it, then a writable
+    .env / tde.env in the bot folder or up to two folders above it (so a tde.env that sits beside the
+    releases/ folder on the host is found), then the plain .env next to the code."""
+    explicit = os.environ.get("ENV_FILE")
+    if explicit:
+        return explicit
+    folders = [_BOT_DIR, os.path.dirname(_BOT_DIR), os.path.dirname(os.path.dirname(_BOT_DIR))]
+    existing = [os.path.join(d, n) for d in folders for n in ("tde.env", ".env") if os.path.isfile(os.path.join(d, n))]
+    for path in existing:
+        if os.access(path, os.W_OK):
+            return path
+    return existing[0] if existing else ENV_PATH
 
 # setting key -> (label, env var name, kind)   kind: server | channel | role | category | text
 SETTINGS: dict[str, tuple[str, str, str]] = {"server-id": ("Server ID", "GUILD_ID", "server")}
@@ -37,9 +53,10 @@ CLEAR_WORDS = {"clear", "none", "reset", "remove", "0"}
 
 def write_env(name: str, value: str):
     """Sets NAME=value in the .env file (replacing the line if it exists), atomically."""
+    path = find_env_path()
     lines = []
-    if os.path.exists(ENV_PATH):
-        with open(ENV_PATH, encoding="utf-8") as f:
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as f:
             lines = f.read().splitlines()
     pattern = re.compile(r"^\s*" + re.escape(name) + r"\s*=")
     new_line = f"{name}={value}"
@@ -49,10 +66,15 @@ def write_env(name: str, value: str):
             break
     else:
         lines.append(new_line)
-    tmp = ENV_PATH + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines) + "\n")
-    os.replace(tmp, ENV_PATH)
+    text = "\n".join(lines) + "\n"
+    if os.access(os.path.dirname(path) or ".", os.W_OK):
+        tmp = path + ".tmp"  # atomic: write beside it, then swap
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(tmp, path)
+    else:  # the folder is locked but the file itself may be writable (e.g. a mounted env file)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
 
 
 def extract_id(raw: str):
@@ -156,11 +178,23 @@ class SettingsCommand(commands.Cog):
                             f"I can't find that {kind} in the server - check the ID.", ephemeral=True)
             new = "" if new_id is None else str(new_id)
 
+        env_saved = True
         try:
             write_env(env, new)
         except OSError as e:
-            logging.exception("Couldn't write .env")
-            return await interaction.response.send_message(f"Couldn't write the .env file: {e}", ephemeral=True)
+            # e.g. a read-only release folder on the host. Channel/role/category settings can live in the
+            # bot's database instead (it takes priority over .env), so they still save and survive restarts.
+            logging.warning("Couldn't write .env (%s) - saving %s to the database instead", e, key)
+            env_saved = False
+            if kind in ("server", "text"):
+                return await interaction.response.send_message(
+                    f"Couldn't write the .env file ({e}). This one can only be saved there - the folder is "
+                    "read-only on this host, so change it in your host's environment settings instead.", ephemeral=True)
+            target_guild = interaction.guild or self.bot.get_guild(config.GUILD_ID or 0)
+            if target_guild is None:
+                return await interaction.response.send_message(
+                    f"Couldn't write the .env file ({e}), and I couldn't tell which server to save this for.", ephemeral=True)
+            gc.set_override(target_guild.id, key, new or "0")  # "0" = cleared (beats the .env default)
 
         # Apply to the running bot.
         if kind == "text":
@@ -168,7 +202,7 @@ class SettingsCommand(commands.Cog):
         else:
             setattr(config, env, int(new) if new else None)
         os.environ[env] = new
-        if kind not in ("server", "text"):
+        if kind not in ("server", "text") and env_saved:
             clear_overrides(key)
 
         extra = ""
@@ -183,7 +217,7 @@ class SettingsCommand(commands.Cog):
                 f"✅ **{label}** {'cleared' if not new else 'set to ' + self._describe(key)}.{extra}", ephemeral=True)
 
         await interaction.response.send_message(
-            f"✅ **{label}** {'cleared' if not new else 'set to ' + self._describe(key)}. Saved to `.env`.",
+            f"✅ **{label}** {'cleared' if not new else 'set to ' + self._describe(key)}. {'Saved to the env file.' if env_saved else 'Saved to the bot database (.env is read-only here), so it survives restarts.'}",
             ephemeral=True,
         )
 
