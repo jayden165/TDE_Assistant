@@ -9,6 +9,34 @@ import database as db
 import guild_config as gc
 
 PUNISHMENTS = ["ban", "softban", "kick", "timeout"]
+SOFTBANS_KEY = "honeypot_softbans"  # running total of softbans the honeypot has given in a server
+
+
+def softban_count(gid: int) -> int:
+    try:
+        return int(db.get_setting(gid, SOFTBANS_KEY, "0") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def notice_key(channel_id: int) -> str:
+    return f"honeypot_notice:{channel_id}"  # setting holding the id of the warning message posted in that trap channel
+
+
+def build_notice(gid: int) -> tuple[discord.Embed, discord.ui.View]:
+    """The warning posted in a trap channel, with a button that shows the running softban total."""
+    embed = discord.Embed(
+        title="🍯 Do not type in this channel",
+        description=("This is a **honeypot** channel. It exists to catch **compromised accounts** and spam bots.\n\n"
+                     "**Anyone who sends a message here is automatically soft banned** - banned and instantly unbanned, "
+                     "which wipes their recent messages. You can rejoin right away, but please don't type here."),
+        color=discord.Color.orange(),
+    )
+    embed.set_footer(text="Real members: just don't post here. Staff are immune.")
+    view = discord.ui.View(timeout=None)
+    view.add_item(discord.ui.Button(label=f"Soft bans given: {softban_count(gid):,}", emoji="🔨",
+                                    style=discord.ButtonStyle.secondary, disabled=True, custom_id="honeypot_count"))
+    return embed, view
 
 
 def is_admin_perm(member: discord.Member) -> bool:
@@ -79,6 +107,15 @@ class Honeypot(commands.Cog):
             ids.add(str(add_channel.id))
             db.set_setting(gid, "honeypot_channels", ",".join(ids))
             changes.append(f"{add_channel.mention} added as a trap channel")
+            await interaction.response.defer(ephemeral=True)  # posting the notice can take a moment
+            await self._delete_notice(add_channel)  # re-adding replaces the old warning instead of doubling it
+            try:
+                embed, view = build_notice(gid)
+                msg = await add_channel.send(embed=embed, view=view)
+                db.set_setting(gid, notice_key(add_channel.id), msg.id)
+                changes.append("Posted the warning message there")
+            except discord.HTTPException:
+                changes.append(f"⚠️ Couldn't post the warning in {add_channel.mention} - I need View Channel and Send Messages there")
 
         if remove_channel is not None:
             existing = db.get_setting(gid, "honeypot_channels", "")
@@ -86,6 +123,7 @@ class Honeypot(commands.Cog):
             ids.discard(str(remove_channel.id))
             db.set_setting(gid, "honeypot_channels", ",".join(ids))
             changes.append(f"{remove_channel.mention} removed as a trap channel")
+            await self._delete_notice(remove_channel)
 
         if log_channel is not None:
             db.set_setting(gid, "honeypot_log_channel", log_channel.id)
@@ -110,7 +148,37 @@ class Honeypot(commands.Cog):
         if not changes:  # nothing to change: just show the current setup
             return await interaction.response.send_message(embed=self._status_embed(interaction.guild_id), ephemeral=True)
 
-        await interaction.response.send_message("Updated:\n" + "\n".join(f"- {c}" for c in changes), ephemeral=True)
+        text = "Updated:\n" + "\n".join(f"- {c}" for c in changes)
+        if interaction.response.is_done():  # add_channel already deferred
+            await interaction.followup.send(text, ephemeral=True)
+        else:
+            await interaction.response.send_message(text, ephemeral=True)
+
+    async def _delete_notice(self, channel: discord.TextChannel):
+        """Removes the warning message posted in this trap channel, if there is one."""
+        gid = channel.guild.id
+        raw = db.get_setting(gid, notice_key(channel.id))
+        if not raw:
+            return
+        try:
+            await channel.get_partial_message(int(raw)).delete()
+        except (discord.HTTPException, ValueError):
+            pass  # already gone, or no permission - nothing more to do
+        db.delete_setting(gid, notice_key(channel.id))
+
+    async def _refresh_notices(self, guild: discord.Guild):
+        """Updates the softban total on the warning in every trap channel."""
+        channels = db.get_setting(guild.id, "honeypot_channels", "")
+        for cid in (c for c in channels.split(",") if c):
+            raw = db.get_setting(guild.id, notice_key(int(cid)))
+            channel = guild.get_channel(int(cid))
+            if not raw or channel is None:
+                continue
+            try:
+                embed, view = build_notice(guild.id)
+                await channel.get_partial_message(int(raw)).edit(embed=embed, view=view)
+            except (discord.HTTPException, ValueError):
+                continue
 
     def _status_embed(self, gid: int) -> discord.Embed:
         enabled = db.get_setting(gid, "honeypot_enabled", "0") == "1"
@@ -131,6 +199,7 @@ class Honeypot(commands.Cog):
         embed.add_field(name="Trap Channels", value=chan_text, inline=False)
         embed.add_field(name="Log Channel", value=f"<#{log_id}>" if log_id else "Not set", inline=True)
         embed.add_field(name="Purge Their Messages", value="Yes" if purge else "No", inline=True)
+        embed.add_field(name="Soft Bans Given", value=f"{softban_count(gid):,}", inline=True)
         embed.set_footer(text="Staff, admins, and the bot owner are always immune.")
         return embed
 
@@ -207,6 +276,8 @@ class Honeypot(commands.Cog):
                 await member.ban(reason="Honeypot: posted in trap channel", delete_message_seconds=86400)
                 await message.guild.unban(member, reason="Honeypot softban - unbanning immediately")
                 action_taken = "Softbanned (messages wiped)"
+                db.set_setting(gid, SOFTBANS_KEY, softban_count(gid) + 1)
+                await self._refresh_notices(message.guild)
             elif punishment == "kick":
                 await member.kick(reason="Honeypot: posted in trap channel")
                 action_taken = "Kicked"

@@ -25,6 +25,7 @@ EXTENSIONS = [
     "cogs.tickets",
     "cogs.moderation_tools",
     "cogs.applications",
+    "cogs.auditions",
     "cogs.utility",
     "cogs.honeypot",
     "cogs.debug",

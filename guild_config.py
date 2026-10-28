@@ -15,6 +15,7 @@ CHANNEL_SETTINGS = {
     "application-log-channel": ("Application Log Channel", "APPLICATION_LOG_CHANNEL_ID", None),
     "application-accepted-channel": ("Applications Accepted Channel", "APPLICATION_ACCEPTED_CHANNEL_ID", None),
     "application-denied-channel": ("Applications Denied Channel", "APPLICATION_DENIED_CHANNEL_ID", None),
+    "audition-review-channel": ("Audition Review Channel (falls back to the application log)", "AUDITION_REVIEW_CHANNEL_ID", None),
     "ticket-panel": ("Ticket Panel Channel", "TICKET_PANEL_CHANNEL_ID", None),
     "transcript-channel": ("Transcript Channel", "TRANSCRIPT_CHANNEL_ID", None),
     "modmail-log-channel": ("Modmail Log Channel (transcripts)", "MODMAIL_LOG_CHANNEL_ID", None),

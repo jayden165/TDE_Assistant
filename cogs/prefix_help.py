@@ -20,11 +20,12 @@ OT = discord.AppCommandOptionType
 
 # These open a pop-up form or a private panel, so they only work as slash commands.
 SLASH_ONLY = {"embed", "moderation-panel", "applications setup", "insmp", "customcmd set", "customcmd request",
-              "recording-post", "recording-end"}
+              "recording-post", "recording-end", "audition post"}
 
 CATEGORIES = [
     ("🛡️ Moderation", ["ban", "unban", "kick", "timeout", "mute", "warn", "infractions", "moderation-panel", "role", "channel"]),
     ("📬 Support & applications", ["panel", "ticket", "support-mode", "modmail", "applications"]),
+    ("🎤 Auditions", ["audition"]),
     ("🎬 Recordings", ["recording-post", "recording-end", "recording-ban"]),
     ("💬 Messages", ["say", "dm", "embed", "insmp", "customcmd"]),
     ("🏠 Server", ["welcome", "upload"]),
