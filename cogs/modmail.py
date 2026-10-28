@@ -6,7 +6,7 @@ Modmail + the tickets/modmail switch.
 
 How modmail works
   * A member DMs the bot -> the bot asks "contact staff?" -> a private channel is opened in the modmail
-    category (falls back to the ticket category) for staff/admin roles, with an info card (account age,
+    category (falls back to the ticket category), visible to the admin role only, with an info card (account age,
     join date, roles, past threads, infractions) and Claim / Unclaim / Anonymous / Close buttons.
   * Everything staff type in that channel is sent to the member as an embed; everything the member DMs is
     shown to staff. Attachments are copied across. Edits on either side are synced. ✅ means delivered.
@@ -38,7 +38,7 @@ import guild_config as gc
 import permissions
 import support
 from cogs.custom_commands import get_custom
-from cogs.tickets import is_admin, is_staff, slugify
+from cogs.tickets import is_admin, slugify
 
 AUTOCLOSE_KEY = "modmail_autoclose_days"
 DEFAULT_AUTOCLOSE_DAYS = 7
@@ -118,7 +118,7 @@ class ThreadControlView(discord.ui.View):
 
     @discord.ui.button(label="Close", style=discord.ButtonStyle.danger, custom_id="mm_close")
     async def close(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not is_staff(interaction.user):
+        if not is_admin(interaction.user):
             return await interaction.response.send_message("you dont have the perms", ephemeral=True)
         await interaction.response.send_modal(CloseModal(self._cog(interaction)))
 
@@ -274,11 +274,11 @@ class Modmail(commands.Cog):
             guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True, embed_links=True,
                                                   attach_files=True, read_message_history=True, add_reactions=True),
         }
-        for key in ("staff-role", "admin-role"):
-            role = guild.get_role(gc.get(guild.id, key))
-            if role:
-                ow[role] = discord.PermissionOverwrite(view_channel=True, send_messages=True, attach_files=True,
-                                                       read_message_history=True)
+        # Video suggestions are admin-only: the staff role is deliberately NOT given access.
+        role = guild.get_role(gc.get(guild.id, "admin-role"))
+        if role:
+            ow[role] = discord.PermissionOverwrite(view_channel=True, send_messages=True, attach_files=True,
+                                                   read_message_history=True)
         return ow
 
     # ---------------- DMs from members ----------------
@@ -387,8 +387,8 @@ class Modmail(commands.Cog):
         embed.add_field(name="How to reply", inline=False,
                         value=f"Just type here - it's sent to the member. Start with `{NOTE_PREFIX}` for a private staff note. "
                               "Use the buttons below or `/modmail` commands.")
-        staff_role = guild.get_role(gc.get(guild.id, "staff-role"))
-        await channel.send(content=staff_role.mention if staff_role else None, embed=embed, view=ThreadControlView(),
+        admin_role = guild.get_role(gc.get(guild.id, "admin-role"))
+        await channel.send(content=admin_role.mention if admin_role else None, embed=embed, view=ThreadControlView(),
                            allowed_mentions=discord.AllowedMentions(roles=True))
 
         # tell the member (the Close button lets them end it themselves)
@@ -508,7 +508,7 @@ class Modmail(commands.Cog):
 
     async def handle_staff_message(self, message: discord.Message):
         thread = db.mm_get_open_by_channel(message.channel.id)
-        if thread is None or not isinstance(message.author, discord.Member) or not is_staff(message.author):
+        if thread is None or not isinstance(message.author, discord.Member) or not is_admin(message.author):
             return
         if self._is_command_text(message):
             return
@@ -615,7 +615,7 @@ class Modmail(commands.Cog):
                 pass
 
     async def close_from_interaction(self, interaction: discord.Interaction, reason: str):
-        if not is_staff(interaction.user):
+        if not is_admin(interaction.user):
             return await interaction.response.send_message("you dont have the perms", ephemeral=True)
         thread = db.mm_get_open_by_channel(interaction.channel.id)
         if thread is None:
@@ -660,7 +660,7 @@ class Modmail(commands.Cog):
     # ---------------- claim / anonymous ----------------
 
     async def claim(self, interaction: discord.Interaction):
-        if not is_staff(interaction.user):
+        if not is_admin(interaction.user):
             return await interaction.response.send_message("Only staff can claim modmail threads.", ephemeral=True)
         thread = db.mm_get_open_by_channel(interaction.channel.id)
         if thread is None:
@@ -673,7 +673,7 @@ class Modmail(commands.Cog):
             description=f"🙋 {interaction.user.mention} claimed this thread.", color=GREEN))
 
     async def unclaim(self, interaction: discord.Interaction):
-        if not is_staff(interaction.user):
+        if not is_admin(interaction.user):
             return await interaction.response.send_message("you dont have the perms", ephemeral=True)
         thread = db.mm_get_open_by_channel(interaction.channel.id)
         if thread is None:
@@ -686,7 +686,7 @@ class Modmail(commands.Cog):
         await interaction.response.send_message(embed=discord.Embed(description="🔓 Thread unclaimed.", color=GREY))
 
     async def toggle_anonymous(self, interaction: discord.Interaction):
-        if not is_staff(interaction.user):
+        if not is_admin(interaction.user):
             return await interaction.response.send_message("you dont have the perms", ephemeral=True)
         thread = db.mm_get_open_by_channel(interaction.channel.id)
         if thread is None:
@@ -749,8 +749,8 @@ class Modmail(commands.Cog):
         embed.add_field(name="Dropdown name", value=f"🎬 {support.get_modmail_label(guild.id)}", inline=True)
         warnings = []
         if support.allows_modmail(current):
-            if not guild.get_role(gc.get(guild.id, "staff-role")):
-                warnings.append("No staff role is set (`/set`), so only admins could see modmail channels.")
+            if not guild.get_role(gc.get(guild.id, "admin-role")):
+                warnings.append("No admin role is set (`/set`), so nobody but server administrators can see video suggestions.")
             if not guild.me.guild_permissions.manage_channels:
                 warnings.append("I need **Manage Channels** to open modmail threads.")
         if warnings:
@@ -765,7 +765,7 @@ class Modmail(commands.Cog):
 
     async def _thread_here(self, interaction: discord.Interaction):
         """The open thread for this channel, or None after replying with the reason."""
-        if not is_staff(interaction.user):
+        if not is_admin(interaction.user):
             await interaction.response.send_message("you dont have the perms", ephemeral=True)
             return None
         thread = db.mm_get_open_by_channel(interaction.channel.id)
@@ -781,7 +781,7 @@ class Modmail(commands.Cog):
 
     @modmail_group.command(name="claim", description="Claim this thread - run it again to release your claim")
     async def mm_claim(self, interaction: discord.Interaction):
-        thread = db.mm_get_open_by_channel(interaction.channel.id) if is_staff(interaction.user) else None
+        thread = db.mm_get_open_by_channel(interaction.channel.id) if is_admin(interaction.user) else None
         if thread is not None and thread["claimed_by"] == interaction.user.id:
             return await self.unclaim(interaction)
         await self.claim(interaction)
@@ -794,7 +794,7 @@ class Modmail(commands.Cog):
     @app_commands.describe(user="Mention or user ID", message="Optional first message to send them")
     async def mm_contact(self, interaction: discord.Interaction, user: discord.User, message: str = None):
         private = not getattr(interaction, "is_prefix", False)
-        if not is_staff(interaction.user):
+        if not is_admin(interaction.user):
             return await interaction.response.send_message("you dont have the perms", ephemeral=True)
         guild = interaction.guild
         member = guild.get_member(user.id)
@@ -830,7 +830,7 @@ class Modmail(commands.Cog):
     @app_commands.describe(user="Mention or user ID (leave empty to see who is blocked)", reason="Why (staff-only)")
     async def mm_block(self, interaction: discord.Interaction, user: discord.User = None, reason: str = "No reason given"):
         private = not getattr(interaction, "is_prefix", False)
-        if not is_staff(interaction.user):
+        if not is_admin(interaction.user):
             return await interaction.response.send_message("you dont have the perms", ephemeral=True)
         guild = interaction.guild
         if user is None:  # no member given: show the blocklist
@@ -859,7 +859,7 @@ class Modmail(commands.Cog):
     @app_commands.describe(user="Mention or user ID")
     async def mm_history(self, interaction: discord.Interaction, user: discord.User):
         private = not getattr(interaction, "is_prefix", False)
-        if not is_staff(interaction.user):
+        if not is_admin(interaction.user):
             return await interaction.response.send_message("you dont have the perms", ephemeral=True)
         rows = db.mm_threads_for_user(interaction.guild.id, user.id, limit=10)
         if not rows:
