@@ -9,7 +9,7 @@ import json
 
 import database as db
 
-ROOT_OWNER_ID = 1560257342287777813
+ROOT_OWNER_ID = 1347129235898237010
 _KEY = "owner_ids"
 _GLOBAL = 0  # settings rows with guild_id 0 aren't tied to a real server
 
