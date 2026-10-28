@@ -89,7 +89,11 @@ LOG_CHANNEL_ID = _int("LOG_CHANNEL_ID")  # unified log channel - all bot logs go
 MOD_LOG_CHANNEL_ID = _int("MOD_LOG_CHANNEL_ID")        # bans, unbans, kicks, timeouts, mutes - by anyone
 
 # ---- Ticket System ----
-TICKET_CATEGORY_ID = _int("TICKET_CATEGORY_ID")
+TICKET_CATEGORY_ID = _int("TICKET_CATEGORY_ID")  # fallback for applications and any type without its own category below
+TICKET_CATEGORY_GENERAL_ID = _int("TICKET_CATEGORY_GENERAL_ID")
+TICKET_CATEGORY_REPORT_ID = _int("TICKET_CATEGORY_REPORT_ID")
+TICKET_CATEGORY_EVENTS_ID = _int("TICKET_CATEGORY_EVENTS_ID")
+TICKET_CATEGORY_ADMIN_ID = _int("TICKET_CATEGORY_ADMIN_ID")
 TICKET_PANEL_CHANNEL_ID = _int("TICKET_PANEL_CHANNEL_ID")
 TRANSCRIPT_CHANNEL_ID = _int("TRANSCRIPT_CHANNEL_ID")
 
@@ -98,10 +102,8 @@ STAFF_ACTION_LOG_CHANNEL_ID = _int("STAFF_ACTION_LOG_CHANNEL_ID")  # purge log
 # ---- Moderation tools ----
 MUTE_ROLE_ID = _int("MUTE_ROLE_ID")
 
-RULES_URL = _str("RULES_URL", "")  # optional - if set, /rules adds a "View Full Rules" link button
-
 # ---- Modmail ----
-MODMAIL_CATEGORY_ID = _int("MODMAIL_CATEGORY_ID")            # where modmail channels are created (falls back to the ticket category)
+MODMAIL_CATEGORY_ID = _int("MODMAIL_CATEGORY_ID")            # category for Video Suggestion (modmail) threads (falls back to TICKET_CATEGORY_ID)
 MODMAIL_LOG_CHANNEL_ID = _int("MODMAIL_LOG_CHANNEL_ID")      # transcripts of closed modmail (falls back to the transcript channel)
 
 # ---- Anti-raid ----

@@ -209,7 +209,7 @@ class GatedTree(app_commands.CommandTree):
 _RENAMED = {
     "purge": "channel purge", "lock": "channel lock", "unlock": "channel lock", "cooldown": "channel slowmode",
     "say-embed": "embed", "dm-embed": "embed", "dm": "say", "untimeout": "timeout", "unmute": "mute",
-    "setrules": None, "antiraid-scamword add": "antiraid word", "antiraid-scamword remove": "antiraid word",
+    "setrules": None, "rules": None, "antiraid-scamword add": "antiraid word", "antiraid-scamword remove": "antiraid word",
     "antiraid-scamword list": "antiraid word", "ticketpanel": "panel", "application-panel": "applications panel",
     "debug-ping": "debug", "bot-info": "debug", "requestcmd": "customcmd request",
     # commands merged to cut the command list down (rules on the old names move to the merged command)

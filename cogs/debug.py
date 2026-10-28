@@ -152,14 +152,18 @@ class Debug(commands.Cog):
         wanted = ["administrator", "manage_roles", "manage_channels", "manage_messages", "ban_members",
                   "kick_members", "moderate_members", "view_audit_log"]
         perm_lines = [f"{'✅' if getattr(me, p, False) else '❌'} {p.replace('_', ' ').title()}" for p in wanted]
-        category = guild.get_channel(gc.get(guild.id, "modmail-category") or gc.get(guild.id, "ticket-category") or 0)
-        if isinstance(category, discord.CategoryChannel):
-            cp = category.permissions_for(guild.me)
-            bad = [n for n, ok in (("manage_channels", cp.manage_channels), ("view_channel", cp.view_channel),
-                                   ("send_messages", cp.send_messages)) if not ok]
-            perm_lines.append(f"\n**Ticket / modmail category:** " + ("✅ ok" if not bad else f"❌ missing {', '.join(bad)}"))
-        else:
-            perm_lines.append("\n**Ticket / modmail category:** ⚪ not set (channels are created at the top level)")
+        cat_keys = [(k, l) for k, (l, _a) in gc.CATEGORY_SETTINGS.items()]
+        perm_lines.append("")
+        for k, l in cat_keys:
+            category = guild.get_channel(gc.get(guild.id, k) or 0)
+            short = l.split(" (")[0]
+            if isinstance(category, discord.CategoryChannel):
+                cp = category.permissions_for(guild.me)
+                bad = [n for n, ok in (("manage_channels", cp.manage_channels), ("view_channel", cp.view_channel),
+                                       ("send_messages", cp.send_messages)) if not ok]
+                perm_lines.append(f"**{short}:** " + ("✅ ok" if not bad else f"❌ missing {', '.join(bad)}"))
+            else:
+                perm_lines.append(f"**{short}:** ⚪ not set")
         embeds.append(discord.Embed(title="🔧 Debug - Bot permissions", description="\n".join(perm_lines), color=BLURPLE))
         return embeds
 

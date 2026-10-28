@@ -56,7 +56,7 @@ def remove_owner(user_id: int) -> bool:
 
 # ---------------- text-command prefixes ----------------
 # Owners can register any number of prefixes (e.g. "s!", "TDE!", "DE?"); a message that starts
-# with one runs the matching command, so "s! rules" works like /rules. See cogs/prefixcmds.py.
+# with one runs the matching command, so "s! ping" works like /ping. See cogs/prefixcmds.py.
 
 _PREFIX_KEY = "command_prefixes"
 MAX_PREFIX_LENGTH = 20

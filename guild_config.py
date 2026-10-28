@@ -32,8 +32,12 @@ ROLE_SETTINGS = {
 }
 
 CATEGORY_SETTINGS = {
-    "ticket-category": ("Ticket Category", "TICKET_CATEGORY_ID"),
-    "modmail-category": ("Modmail Category (falls back to the ticket category)", "MODMAIL_CATEGORY_ID"),
+    "ticket-category-general": ("General Tickets Category", "TICKET_CATEGORY_GENERAL_ID"),
+    "ticket-category-report": ("Report Tickets Category", "TICKET_CATEGORY_REPORT_ID"),
+    "ticket-category-events": ("Events Tickets Category", "TICKET_CATEGORY_EVENTS_ID"),
+    "ticket-category-admin": ("Admin Tickets Category", "TICKET_CATEGORY_ADMIN_ID"),
+    "ticket-category": ("Ticket Category (fallback: applications + any type without its own)", "TICKET_CATEGORY_ID"),
+    "modmail-category": ("Video Suggestions Category (modmail threads)", "MODMAIL_CATEGORY_ID"),
 }
 
 # Log channels that fall back to another one when they aren't configured, so a server that
@@ -78,6 +82,17 @@ def set_override(guild_id: int, key: str, value: int):
 
 def clear_override(guild_id: int, key: str):
     db.delete_setting(guild_id, f"cfg:{key}")
+
+
+def get_ticket_category_id(guild_id: int, ticket_type: str = None) -> int:
+    """Category for a ticket of this type (general / report / events / admin). Uses that type's own
+    category if one is set, otherwise the general fallback `ticket-category`. 0 if neither is set."""
+    key = f"ticket-category-{ticket_type}" if ticket_type else None
+    if key in CATEGORY_SETTINGS:
+        value = get(guild_id, key)
+        if value:
+            return value
+    return get(guild_id, "ticket-category")
 
 
 def get_log_channel_id(guild_id: int, key: str) -> int:

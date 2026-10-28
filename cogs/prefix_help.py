@@ -27,7 +27,7 @@ CATEGORIES = [
     ("📬 Support & applications", ["panel", "ticket", "support-mode", "modmail", "applications"]),
     ("🎬 Recordings", ["recording-post", "recording-end", "recording-ban"]),
     ("💬 Messages", ["say", "embed", "insmp", "customcmd"]),
-    ("🏠 Server", ["welcome", "rules", "upload"]),
+    ("🏠 Server", ["welcome", "upload"]),
     ("📺 YouTube", ["upload"]),
     ("🔒 Security", ["honeypot", "antiraid"]),
     ("⚙️ Bot", ["ping", "status", "debug", "log-aio", "setchannel", "prefix", "owner", "commandperms", "set"]),

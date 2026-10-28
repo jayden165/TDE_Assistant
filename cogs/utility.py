@@ -13,12 +13,6 @@ import guild_config as gc
 import welcome_card
 from permissions import owner_ids, is_owner as _is_owner_id, get_prefixes
 
-# Rules are per-server and start out unset — there is no default/hardcoded rules
-# text. Admins set them with /rules edit:True, which saves to the settings table under
-# the "rules_text" key (see database.get_setting / database.set_setting).
-RULES_SETTING_KEY = "rules_text"
-
-
 def is_owner(user) -> bool:
     return _is_owner_id(user.id)
 
@@ -57,19 +51,6 @@ def parse_duration(text: str):
     if num:  # bare number = minutes
         total += int(num) * 60
     return total if total > 0 else None
-
-
-def rules_embed(guild: discord.Guild) -> discord.Embed:
-    text = db.get_setting(guild.id, RULES_SETTING_KEY)
-    description = text if text else "No rules have been set for this server yet. Ask an admin to run `/rules edit:True`."
-    return discord.Embed(title=f"📜 {guild.name} — Server Rules", description=description, color=discord.Color.blurple())
-
-
-class RulesLinkView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
-        if config.RULES_URL:
-            self.add_item(discord.ui.Button(label="View Full Rules", url=config.RULES_URL))
 
 
 WELCOME_MESSAGE_KEY = "welcome_message"
@@ -325,30 +306,6 @@ class WelcomeMessageModal(discord.ui.Modal, title="Set Welcome Message"):
         await interaction.followup.send(**preview_kwargs(header, payload))
 
 
-class SetRulesModal(discord.ui.Modal, title="Set Server Rules"):
-    rules_text = discord.ui.TextInput(
-        label="Rules",
-        style=discord.TextStyle.paragraph,
-        max_length=4000,
-        required=False,
-        placeholder="Leave blank to clear the rules for this server.",
-    )
-
-    def __init__(self, current: str | None):
-        super().__init__()
-        if current:
-            self.rules_text.default = current
-
-    async def on_submit(self, interaction: discord.Interaction):
-        new_text = str(self.rules_text.value).strip()
-        if new_text:
-            db.set_setting(interaction.guild_id, RULES_SETTING_KEY, new_text)
-            await interaction.response.send_message("Rules updated.", ephemeral=True)
-        else:
-            db.delete_setting(interaction.guild_id, RULES_SETTING_KEY)
-            await interaction.response.send_message("Rules cleared — this server now has no rules set.", ephemeral=True)
-
-
 class Utility(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -399,7 +356,7 @@ class Utility(commands.Cog):
                 size += len(line) + 1
         prefixes = get_prefixes()
         if prefixes:
-            examples = ", ".join(f"`{p} rules`" for p in prefixes[:3])
+            examples = ", ".join(f"`{p} ping`" for p in prefixes[:3])
             embed.add_field(
                 name="Text commands",
                 value=f"You can also type commands with a prefix instead of `/`, e.g. {examples}. "
@@ -417,18 +374,6 @@ class Utility(commands.Cog):
         await interaction.response.send_message("Pinging...")
         elapsed_ms = (time.perf_counter() - start) * 1000
         await interaction.edit_original_response(content=f"Pong! Replied within **{elapsed_ms:.0f}ms**")
-
-    # ---------------- /rules ----------------
-
-    @app_commands.command(name="rules", description="View the server rules (admins can edit them)")
-    @app_commands.describe(edit="Admins only: open a form to set or clear the rules")
-    async def rules(self, interaction: discord.Interaction, edit: bool = False):
-        if edit:
-            if not is_admin_perm(interaction.user):
-                return await interaction.response.send_message("you dont have the perms", ephemeral=True)
-            current = db.get_setting(interaction.guild_id, RULES_SETTING_KEY)
-            return await interaction.response.send_modal(SetRulesModal(current))
-        await interaction.response.send_message(embed=rules_embed(interaction.guild), view=RulesLinkView(), ephemeral=True)
 
     # ---------------- /channel (lock, slowmode, purge) ----------------
 

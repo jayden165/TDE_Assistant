@@ -1,7 +1,7 @@
 # TDE Assistant
 
 A single-server Discord bot with: honeypot, anti-raid, moderation (and logs), channel utilities,
-welcomer, rules, tickets, applications and diagnostics.
+welcomer, tickets, applications and diagnostics.
 
 ```
 
@@ -9,11 +9,11 @@ welcomer, rules, tickets, applications and diagnostics.
 
 | Area | Commands |
 |---|---|
-| Everyone | `/help`, `/rules`, `/ping` |
+| Everyone | `/help`, `/ping` |
 | Moderation (staff) | `/ban`, `/unban`, `/kick`, `/timeout` (`off` ends it), `/mute` (run again to unmute), `/warn`, `/infractions`, `/moderation-panel`, `/role` (`remove:True` takes it away), `/channel lock\|slowmode\|purge` (`lock time:off` unlocks) |
 | Support | `/panel` (support dropdown), `/applications setup\|list\|panel`, `/support-mode`, `/modmail ...` |
 | Messages | `/say` (owner; add `user:` to DM), `/embed` (admin popup; add `user:` to DM), `/insmp`, `/customcmd set\|list\|request` |
-| Server | `/welcome`, `/rules edit:True` |
+| Server | `/welcome` |
 | Security | `/honeypot`, `/antiraid config\|word` |
 | Bot / owners | `/debug`, `/log-aio`, `/setchannel`, `/set`, `/prefix`, `/owner`, `/commandperms` |
 
@@ -82,7 +82,7 @@ Change it with `MEMBER_COMMAND_LIMIT` / `MEMBER_COMMAND_WINDOW` in `.env` (limit
   Every welcome comes with a **welcome card** made fresh for the new member - the dark "Member #N" card with their avatar and name (`welcome_card.py`, drawn on `assets/welcome_card_template.png`).
   `/welcome card:False` turns it off (the server's welcome `image`/`url`, if any, is used instead; also used if a card can't be made). For the exact original look put `Raleway-Bold.ttf` and
   `Raleway-SemiBold.ttf` (free from Google Fonts) in `assets/fonts/`; without them it uses a system font.
-- **Rules:** `/rules` shows them; admins use `/rules edit:True` to set or clear them
+- **Ticket categories:** each ticket type has its own category - General, Report, Events and Admin (`/set` or `/setchannel`, or `TICKET_CATEGORY_GENERAL_ID` / `_REPORT_ID` / `_EVENTS_ID` / `_ADMIN_ID` in `.env`). Video Suggestions (modmail threads) go in their own category too (`/set` -> *Video Suggestions Category*, or `MODMAIL_CATEGORY_ID`). A type with no category of its own, and application tickets, use the general `TICKET_CATEGORY_ID`.
 - **Panels:** `/panel` posts the support dropdown (tickets / modmail) and `/panel customize:True` changes how it looks (title, text, colour, banner, placeholder in a form; `ticket_label`, `modmail_label`, `footer`, `thumbnail`, `show_list`, `reset:True` as options - posted panels update themselves); `/applications panel` posts the applications menu (add `customize:True` to restyle it). Ticket transcripts are saved on close.
 - **Applications:** one group, `/applications setup | list | panel` (`setup` with no name creates an application, with a name edits it, `delete:True` removes it; `panel` posts the menu, `panel customize:True` restyles it). `panel` posts an embed with **one button per application**. Pressing a button opens the
   application as a **form** (or, for **Staff** applications and anything set with `dm:True`, sends the questions to the applicant's **DMs** one at a time - reply to each, `cancel` to stop; a form shows 5 questions per page - longer ones continue on the next page - with the question as each field's label), then a **private ticket** is opened with the
@@ -94,7 +94,7 @@ Change it with `MEMBER_COMMAND_LIMIT` / `MEMBER_COMMAND_WINDOW` in `.env` (limit
 - **Diagnostics:** `/debug` (bot info, cogs, channels, roles, permissions), `/ping`
 - **Help:** `/help` lists the commands you're allowed to use
 - **Setup:** `/set` (only user 1560257342287777813): set the server ID, staff/admin/mute roles, every log, ticket and
-  application channel, the ticket category and the rules link from Discord. Values are saved to `.env` and applied
+  application channel, and the ticket categories from Discord. Values are saved to `.env` and applied
   immediately. `/set` with no arguments lists everything and flags IDs that don't resolve.
 - **Owners:** `/owner action:Add|Remove|List user:` - everyone on the owner list bypasses every
   permission check. Only the root owner (hardcoded in `permissions.py`) can add or remove owners.
@@ -107,9 +107,9 @@ Change it with `MEMBER_COMMAND_LIMIT` / `MEMBER_COMMAND_WINDOW` in `.env` (limit
   `/say`, `/insmp`, `/customcmd`, `/setchannel`, `/status` and `/recording-end` are **owner only, always** (bot owners from `/owner`) and can't be given to roles. They send the
   message exactly as typed (no "sent by" line) and log who used them to the staff action log channel. Applies to text-prefix commands and `/help` too.
 - **Text prefixes:** `/prefix action:Add|Remove|List prefix:` (owners). Any prefix works, e.g. `s!`, `TDE!`, `DE?`.
-  Then `s! rules`, `TDE! purge 20 spam`, `DE? welcome #welcome` run the same commands as the slash versions,
+  Then `s! ping`, `TDE! purge 20 spam`, `DE? welcome #welcome` run the same commands as the slash versions,
   with the same permission checks. Private ("only you can see") replies go to your DMs. Commands that open a
-  pop-up form (`/rules edit`, `/embed`, `/welcome edit_message:True`, `/applications setup`, `/customcmd set`) need the slash version.
+  pop-up form (`/embed`, `/welcome edit_message:True`, `/applications setup`, `/customcmd set`) need the slash version.
 
 ## Notes
 

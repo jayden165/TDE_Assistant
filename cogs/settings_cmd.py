@@ -1,7 +1,7 @@
 """
 /set - lets the setup user (permissions.SETUP_USER_ID) change the bot's IDs from Discord instead of
 editing .env by hand: the server ID, staff/admin/mute roles, every log/ticket/application channel,
-the ticket category and the rules link.
+and the ticket categories.
 
 Each change is written to the .env file (so it survives a restart) and applied to the running bot
 straight away. Any older per-server override for the same setting is cleared so the new value wins.
@@ -30,7 +30,6 @@ for _key, (_label, _attr) in gc.ROLE_SETTINGS.items():
     SETTINGS[_key] = (_label, _attr, "role")
 for _key, (_label, _attr) in gc.CATEGORY_SETTINGS.items():
     SETTINGS[_key] = (_label, _attr, "category")
-SETTINGS["rules-url"] = ("Rules Link (button under /rules)", "RULES_URL", "text")
 
 CHOICES = [app_commands.Choice(name=label[:100], value=key) for key, (label, _e, _k) in SETTINGS.items()]
 CLEAR_WORDS = {"clear", "none", "reset", "remove", "0"}

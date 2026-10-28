@@ -488,14 +488,14 @@ class Tickets(commands.Cog):
         label, emoji, who = "Ticket", "🎫", "staff"
         if ticket_type in TICKET_TYPES:
             label, emoji, _lines, who = TICKET_TYPES[ticket_type]
-        ticket_category_id = gc.get(guild.id, "ticket-category")
+        ticket_category_id = gc.get_ticket_category_id(guild.id, ticket_type)  # each type has its own category
         cat_channel = guild.get_channel(ticket_category_id) if ticket_category_id else None
         if ticket_category_id and not isinstance(cat_channel, discord.CategoryChannel):
             # The ID is set but doesn't resolve to a category (wrong ID, or the bot can't see it).
             # Log loudly instead of silently dumping tickets at the top of the server.
             logging.warning(
                 "Ticket category %s did not resolve to a category channel in guild %s - ticket will be "
-                "created without a category. Check TICKET_CATEGORY_ID in .env and the bot's permissions.",
+                "created without a category. Check the ticket category IDs in .env (or /set) and the bot's permissions.",
                 ticket_category_id, guild.id,
             )
             cat_channel = None

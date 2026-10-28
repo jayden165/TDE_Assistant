@@ -4,7 +4,7 @@ Text commands with custom prefixes.
 Owners register any prefixes they like with /prefix (e.g. "s!", "TDE!", "DE?"). A message that
 starts with one runs the matching slash command, with the arguments typed after it:
 
-    s! rules
+    s! ping
     TDE! purge 20
     DE? role @someone @Member
     s! welcome #welcome
@@ -12,7 +12,7 @@ starts with one runs the matching slash command, with the arguments typed after 
 Commands run through the very same handlers as the slash versions, so every permission check
 still applies. Because there's no ephemeral reply in a text message, "only you can see this"
 replies are sent to the user's DMs (short ones appear in the channel and delete themselves).
-Commands that open a pop-up form (/rules edit, /embed, /welcome edit_message:True,
+Commands that open a pop-up form (/embed, /welcome edit_message:True,
 /applications setup) need the slash version.
 
 Moderation commands (cogs/punishments.py) take a user mention or raw ID, then the reason:
@@ -283,7 +283,7 @@ class PrefixCommands(commands.Cog):
 
     # ---------------- /prefix (owners) ----------------
 
-    @app_commands.command(name="prefix", description="[Owner] Set the prefixes that run commands as text (e.g. s! rules)")
+    @app_commands.command(name="prefix", description="[Owner] Set the prefixes that run commands as text (e.g. s! ping)")
     @app_commands.describe(action="Add, remove or list prefixes", prefix="The prefix, e.g. s! or TDE! or DE?")
     @app_commands.choices(action=[
         app_commands.Choice(name="Add", value="add"),
@@ -311,7 +311,7 @@ class PrefixCommands(commands.Cog):
                 f"Prefixes can be at most {permissions.MAX_PREFIX_LENGTH} characters.", ephemeral=True)
 
         if action.value == "add":
-            msg = (f"✅ Added `{prefix}` - try `{prefix} rules`." if permissions.add_prefix(prefix)
+            msg = (f"✅ Added `{prefix}` - try `{prefix} ping`." if permissions.add_prefix(prefix)
                    else f"`{prefix}` is already a prefix.")
         else:
             msg = (f"🗑️ Removed `{prefix}`." if permissions.remove_prefix(prefix)
