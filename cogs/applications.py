@@ -99,8 +99,8 @@ def save_types(guild_id: int, types: dict):
 PANEL_STYLE_KEY = "app_panel_style"   # JSON: title, description, color, image, thumbnail, footer, placeholder, show_list
 PANEL_MSGS_KEY = "app_panel_msgs"     # JSON: [[channel_id, message_id], ...] of posted panels, so they can be refreshed
 DEFAULT_PANEL_TITLE = "📋 Applications"
-DEFAULT_PANEL_TEXT = ("Click a button below to apply. You'll answer the questions (in a form, or in your DMs for "
-                      "some applications), then a private ticket is opened with the staff team.")
+DEFAULT_PANEL_TEXT = ("Click a button below to apply. You'll answer the questions in your DMs and the staff team "
+                      "reviews them. Voice Actor applications also open a private ticket.")
 BUTTON_STYLES = {"blue": discord.ButtonStyle.primary, "grey": discord.ButtonStyle.secondary,
                  "gray": discord.ButtonStyle.secondary, "green": discord.ButtonStyle.success,
                  "red": discord.ButtonStyle.danger}
@@ -264,11 +264,21 @@ DEFAULT_ACCEPT_ROLES = {"staff": [1444997607578533929, 1516526043354103908]}
 
 
 def uses_dm(app_type: str, entry: dict) -> bool:
-    """True if this application is answered in the applicant's DMs instead of a pop-up form. Set per
-    application with /applications setup dm:True|False; unset, Staff applications use DMs."""
-    if "dm" in entry:
-        return bool(entry["dm"])
-    return "staff" in re.sub(r"[^a-z]", "", app_type.lower())
+    """Every application is answered in the applicant's DMs (the old per-application dm: setting is ignored)."""
+    return True
+
+
+def is_voice_actor(app_type: str) -> bool:
+    """Only Voice Actor applications open a ticket; every other application is posted in the review
+    channel with Accept / Deny buttons. Matched on the name's letters, so "Voice Actor", "voice-actors" ... work."""
+    return "voice" in re.sub(r"[^a-z]", "", app_type.lower())
+
+
+def submitted_text(app_type: str, channel) -> str:
+    if is_voice_actor(app_type):
+        return f"Your **{app_type}** application was sent. A ticket has been opened with the staff team: {channel.mention}"
+    return (f"Your **{app_type}** application was sent to the staff team. "
+            "You'll get a DM here once it's been reviewed.")
 
 
 def roles_for(app_type: str, entry: dict) -> list[int]:
@@ -495,6 +505,10 @@ class ApplicationDecisionView(discord.ui.View):
 
     async def apply_decision(self, interaction: discord.Interaction, decision: str, reason: str = None):
         app_id = self._app_id(interaction.message)
+        current = db.get_application(app_id) if app_id else None
+        if current is not None and current["status"] != "pending":
+            return await interaction.response.send_message(
+                f"This application was already **{current['status']}**.", ephemeral=True)
         db.set_application_status(app_id, decision.lower())
         embed = interaction.message.embeds[0]
         header = f"**{decision} by {interaction.user.mention}**"
@@ -600,32 +614,6 @@ class ApplicationDecisionView(discord.ui.View):
         if not is_staff(interaction.user):
             return await interaction.response.send_message("you dont have the perms", ephemeral=True)
         await interaction.response.send_modal(DecisionReasonModal(self, "Denied"))
-
-    @discord.ui.button(label="Open Ticket", style=discord.ButtonStyle.primary, emoji="🎫", custom_id="app_ticket")
-    async def open_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not is_staff(interaction.user):
-            return await interaction.response.send_message("you dont have the perms", ephemeral=True)
-        row = db.get_application(self._app_id(interaction.message))
-        if not row:
-            return await interaction.response.send_message("Couldn't find that application.", ephemeral=True)
-        member = interaction.guild.get_member(row["user_id"])
-        if not member:
-            return await interaction.response.send_message("That user isn't in the server anymore.", ephemeral=True)
-
-        tickets_cog = interaction.client.get_cog("Tickets")
-        if not tickets_cog:
-            return await interaction.response.send_message("Ticket system isn't loaded.", ephemeral=True)
-        existing = tickets_cog.open_ticket_channel(interaction.guild, member.id)
-        if existing is not None:
-            return await interaction.response.send_message(
-                f"{member.mention} already has an open ticket: {existing.mention}.", ephemeral=True)
-        channel = await tickets_cog.create_ticket_channel(
-            interaction.guild, member,
-            name_override=f"{member.name}-application-ticket",
-        )
-        if channel is None:
-            return await interaction.response.send_message("Couldn't create the ticket channel.", ephemeral=True)
-        await interaction.response.send_message(f"Ticket opened: {channel.mention}", ephemeral=True)
 
 
 class ConfirmDeleteView(discord.ui.View):
@@ -943,16 +931,14 @@ class Applications(commands.Cog):
         questions = entry.get("questions") or []
         if not questions:
             return await interaction.response.send_message("That application has no questions set up yet.", ephemeral=True)
-        tickets = interaction.client.get_cog("Tickets")
-        if tickets is None:
-            return await interaction.response.send_message("The ticket system isn't loaded right now.", ephemeral=True)
-        existing = tickets.open_ticket_channel(guild, interaction.user.id)
-        if existing is not None:  # one ticket at a time per member
-            return await interaction.response.send_message(
-                f"You already have an open ticket: {existing.mention}. Please finish or close it before applying.", ephemeral=True)
-
-        if not uses_dm(name, entry):
-            return await interaction.response.send_modal(AnswerModal(self, AppSession(name, questions, interaction.user.id), 0))
+        if is_voice_actor(name):  # only these open a ticket, so only these care about an existing one
+            tickets = interaction.client.get_cog("Tickets")
+            if tickets is None:
+                return await interaction.response.send_message("The ticket system isn't loaded right now.", ephemeral=True)
+            existing = tickets.open_ticket_channel(guild, interaction.user.id)
+            if existing is not None:  # one ticket at a time per member
+                return await interaction.response.send_message(
+                    f"You already have an open ticket: {existing.mention}. Please finish or close it before applying.", ephemeral=True)
 
         # DM application: the questions are asked one at a time in the applicant's DMs
         user = interaction.user
@@ -1011,9 +997,7 @@ class Applications(commands.Cog):
             if problem:
                 return await dm.send(embed=discord.Embed(title="❌ Couldn't submit", description=problem, color=discord.Color.red()))
             await dm.send(embed=discord.Embed(
-                title="✅ Application submitted",
-                description=f"Your **{name}** application was sent. A ticket has been opened with the staff team: {channel.mention}",
-                color=discord.Color.green()))
+                title="✅ Application submitted", description=submitted_text(name, channel), color=discord.Color.green()))
         except discord.HTTPException:
             logging.exception("DM application for %s failed", user.id)
         finally:
@@ -1024,6 +1008,25 @@ class Applications(commands.Cog):
         entry = get_types(guild.id).get(session.name)
         if entry is None:
             return None, "That application was removed while you were filling it in."
+        notify_id = entry.get("log_channel_id") or gc.get(guild.id, "application-log-channel")
+        notify = guild.get_channel(notify_id) if notify_id else None
+
+        if not is_voice_actor(session.name):
+            # Not a voice actor application: no ticket. It's posted in the review channel with Accept / Deny buttons.
+            if notify is None:
+                return None, "No application review channel is set up yet - please tell an admin."
+            app_id = db.create_application(guild.id, user.id, session.name, session.answers)
+            pages = build_review_pages(user, app_id, session.name, entry, session.questions, session.answers)
+            try:
+                await notify.send(embed=pages[0], view=ApplicationDecisionView(app_id))
+                extra_ids = [(await notify.send(embed=page)).id for page in pages[1:]]
+            except discord.HTTPException:
+                db.set_application_status(app_id, "cancelled")
+                return None, "I couldn't post your application in the review channel - please tell an admin."
+            if extra_ids:
+                db.set_setting(guild.id, f"app_pages:{app_id}", json.dumps({"channel": notify.id, "messages": extra_ids}))
+            return notify, None
+
         tickets = self.bot.get_cog("Tickets")
         if tickets is None:
             return None, "The ticket system isn't loaded right now."
@@ -1039,8 +1042,6 @@ class Applications(commands.Cog):
         if channel is None:
             return None, "I couldn't create the ticket channel - please tell an admin (I need Manage Channels)."
         # tell staff in the review channel, if one is set (per-application, else the server default)
-        notify_id = entry.get("log_channel_id") or gc.get(guild.id, "application-log-channel")
-        notify = self.bot.get_channel(notify_id) if notify_id else None
         if notify is not None:
             try:
                 await notify.send(embed=discord.Embed(
@@ -1059,8 +1060,7 @@ class Applications(commands.Cog):
             return await interaction.followup.send(
                 embed=discord.Embed(title="❌ Couldn't submit", description=problem, color=discord.Color.red()), ephemeral=True)
         await interaction.followup.send(embed=discord.Embed(
-            title="✅ Application submitted",
-            description=f"Your **{session.name}** application was sent. A ticket has been opened with the staff team: {channel.mention}",
+            title="✅ Application submitted", description=submitted_text(session.name, channel),
             color=discord.Color.green()), ephemeral=True)
 
     async def prompt_decision(self, interaction: discord.Interaction, decision: str):
@@ -1161,7 +1161,7 @@ class Applications(commands.Cog):
                            role="Role given when someone is accepted (optional)",
                            channel="Where staff are told about new applications (default: the server's application log)",
                            invite="Invite link sent when someone is accepted (use 'off' to remove)",
-                           dm="Ask the questions in DMs (True) or a pop-up form (False)",
+                           dm="(No longer used - every application is answered in DMs)",
                            clear_role="Stop giving a role on accept (editing only)",
                            clear_channel="Go back to the server's default review channel (editing only)",
                            delete="Delete the application named above")
