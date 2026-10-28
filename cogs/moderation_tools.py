@@ -218,7 +218,7 @@ class ModerationTools(commands.Cog):
                 return await self._log_staff_action(
                     interaction, "✉️ /say (DM)", "Recipient", f"{user.mention} ({user.id})", message, status="Failed (DMs closed)",
                 )
-            await interaction.response.send_message(f"DM sent to {user.mention}.", ephemeral=True)
+            await self._finish_quietly(interaction, f"DM sent to {user.mention}.")
             return await self._log_staff_action(interaction, "✉️ /say (DM)", "Recipient", f"{user.mention} ({user.id})", message)
 
         target = channel or interaction.channel
@@ -231,8 +231,41 @@ class ModerationTools(commands.Cog):
             return await self._log_staff_action(
                 interaction, "💬 /say", "Channel", target.mention, message, status="Failed",
             )
-        await interaction.response.send_message(f"Sent to {target.mention}.", ephemeral=True)
+        await self._finish_quietly(interaction, f"Sent to {target.mention}.")
         await self._log_staff_action(interaction, "💬 /say", "Channel", target.mention, message)
+
+    # ---------------- /dm ----------------
+
+    @app_commands.command(name="dm", description="[Owner] DM a plain message to a member")
+    @app_commands.describe(user="Who to DM", message="What to send")
+    async def dm(self, interaction: discord.Interaction, user: discord.Member, message: str):
+        if not is_owner(interaction.user.id):
+            return await interaction.response.send_message("you dont have the perms", ephemeral=True)
+        if len(message) > MAX_MESSAGE_LENGTH:
+            return await interaction.response.send_message(
+                f"That message is too long - it has to fit in {MAX_MESSAGE_LENGTH} characters.", ephemeral=True,
+            )
+        try:
+            await user.send(message)
+        except discord.HTTPException:
+            await interaction.response.send_message(f"Couldn't DM {user.mention} — their DMs may be closed.", ephemeral=True)
+            return await self._log_staff_action(
+                interaction, "✉️ /dm", "Recipient", f"{user.mention} ({user.id})", message, status="Failed (DMs closed)",
+            )
+        await self._finish_quietly(interaction, f"DM sent to {user.mention}.")
+        await self._log_staff_action(interaction, "✉️ /dm", "Recipient", f"{user.mention} ({user.id})", message)
+
+    @staticmethod
+    async def _finish_quietly(interaction, text: str):
+        """Success handling for say/dm. As a text command (m! say ...) the original message is deleted right away
+        and nothing is posted back; as a slash command the private confirmation is still needed."""
+        if getattr(interaction, "is_prefix", False):
+            try:
+                await interaction.message.delete()
+            except discord.HTTPException:
+                pass  # no Manage Messages here, or it was already deleted
+            return
+        await interaction.response.send_message(text, ephemeral=True)
 
     # ---------------- /embed ----------------
 

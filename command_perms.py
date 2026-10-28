@@ -33,7 +33,7 @@ from permissions import is_owner
 OWNER_ONLY_DEFAULT = frozenset({"embed"})
 
 # Owner-only, always: no role rule (and no Discord permission) can open these up.
-STRICT_OWNER_ONLY = frozenset({"say", "insmp", "customcmd", "setchannel", "recording-end", "status", "restart"})
+STRICT_OWNER_ONLY = frozenset({"say", "dm", "insmp", "customcmd", "setchannel", "recording-end", "status", "restart"})
 
 # Hard-wired to the owner list / setup user in their own handlers; role rules can't change them.
 NOT_CONFIGURABLE = frozenset({"owner", "commandperms", "prefix", "set"}) | STRICT_OWNER_ONLY
@@ -208,7 +208,7 @@ class GatedTree(app_commands.CommandTree):
 # None = the command no longer exists in a form a role rule makes sense for, so the old rule is dropped.
 _RENAMED = {
     "purge": "channel purge", "lock": "channel lock", "unlock": "channel lock", "cooldown": "channel slowmode",
-    "say-embed": "embed", "dm-embed": "embed", "dm": "say", "untimeout": "timeout", "unmute": "mute",
+    "say-embed": "embed", "dm-embed": "embed", "untimeout": "timeout", "unmute": "mute",
     "setrules": None, "rules": None, "antiraid-scamword add": "antiraid word", "antiraid-scamword remove": "antiraid word",
     "antiraid-scamword list": "antiraid word", "ticketpanel": "panel", "application-panel": "applications panel",
     "debug-ping": "debug", "bot-info": "debug", "requestcmd": "customcmd request",

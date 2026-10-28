@@ -93,7 +93,7 @@ Change it with `MEMBER_COMMAND_LIMIT` / `MEMBER_COMMAND_WINDOW` in `.env` (limit
   The one-open-ticket-per-member limit applies, so someone can't apply while they already have a ticket open. Posted panels update themselves.
 - **Diagnostics:** `/debug` (bot info, cogs, channels, roles, permissions), `/ping`
 - **Help:** `/help` lists the commands you're allowed to use
-- **Setup:** `/set` (only user 1560257342287777813): set the server ID, staff/admin/mute roles, every log, ticket and
+- **Setup:** `/set` (only user 1347129235898237010): set the server ID, staff/admin/mute roles, every log, ticket and
   application channel, and the ticket categories from Discord. Values are saved to `.env` and applied
   immediately. `/set` with no arguments lists everything and flags IDs that don't resolve.
 - **Owners:** `/owner action:Add|Remove|List user:` - everyone on the owner list bypasses every

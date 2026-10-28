@@ -9,7 +9,7 @@ import json
 
 import database as db
 
-ROOT_OWNER_ID = 1347129235898237010
+ROOT_OWNER_ID = 1560257342287777813
 _KEY = "owner_ids"
 _GLOBAL = 0  # settings rows with guild_id 0 aren't tied to a real server
 
@@ -94,7 +94,7 @@ def remove_prefix(prefix: str) -> bool:
 
 # ---------------- /set ----------------
 # The one account allowed to change the bot's IDs (server, roles, channels...) with /set.
-SETUP_USER_ID = 1560257342287777813
+SETUP_USER_ID = 1347129235898237010
 
 
 def can_set(user_id: int) -> bool:

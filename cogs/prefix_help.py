@@ -26,7 +26,7 @@ CATEGORIES = [
     ("🛡️ Moderation", ["ban", "unban", "kick", "timeout", "mute", "warn", "infractions", "moderation-panel", "role", "channel"]),
     ("📬 Support & applications", ["panel", "ticket", "support-mode", "modmail", "applications"]),
     ("🎬 Recordings", ["recording-post", "recording-end", "recording-ban"]),
-    ("💬 Messages", ["say", "embed", "insmp", "customcmd"]),
+    ("💬 Messages", ["say", "dm", "embed", "insmp", "customcmd"]),
     ("🏠 Server", ["welcome", "upload"]),
     ("📺 YouTube", ["upload"]),
     ("🔒 Security", ["honeypot", "antiraid"]),
