@@ -10,6 +10,8 @@ How modmail works
     join date, roles, past threads, infractions) and Claim / Unclaim / Anonymous / Close buttons.
   * Everything staff type in that channel is sent to the member as an embed; everything the member DMs is
     shown to staff. Attachments are copied across. Edits on either side are synced. ✅ means delivered.
+  * Delete a staff reply in the thread channel and the DM the member got is deleted too (the transcript keeps a
+    "[deleted]" mark). Works on replies, and on the first message sent with /modmail contact.
   * Start a message with // to leave an internal note staff-only (not sent). Messages that start with a
     bot prefix + a real command are treated as commands, not replies.
   * Replies can be anonymous (the member sees "Staff Team" instead of your name).
@@ -559,6 +561,45 @@ class Modmail(commands.Cog):
         except (discord.HTTPException, AttributeError):
             pass
 
+    # ---------------- deletes ----------------
+
+    async def _delete_relayed_dm(self, channel_msg_id: int) -> bool:
+        """A staff reply was deleted in the thread channel -> delete the DM the member received."""
+        row = db.mm_find_staff_message(channel_msg_id)
+        if row is None or not row["dm_msg_id"]:
+            return False
+        thread = db.mm_get_thread(row["thread_id"])
+        if thread is None:
+            return False
+        try:
+            user = await self.fetch_user(thread["user_id"])
+            if user is None:
+                return False
+            dm = user.dm_channel or await user.create_dm()
+            await dm.get_partial_message(row["dm_msg_id"]).delete()
+        except discord.NotFound:
+            pass  # already gone
+        except discord.HTTPException:
+            logging.warning("couldn't delete modmail DM %s", row["dm_msg_id"])
+            return False
+        content = row["content"] or ""
+        if not content.startswith("[deleted]"):
+            db.mm_update_message_content(row["id"], f"[deleted] {content}".strip())
+        return True
+
+    @commands.Cog.listener()
+    async def on_raw_message_delete(self, payload: discord.RawMessageDeleteEvent):
+        if payload.guild_id is None:
+            return
+        await self._delete_relayed_dm(payload.message_id)
+
+    @commands.Cog.listener()
+    async def on_raw_bulk_message_delete(self, payload: discord.RawBulkMessageDeleteEvent):
+        if payload.guild_id is None:
+            return
+        for message_id in payload.message_ids:
+            await self._delete_relayed_dm(message_id)
+
     @staticmethod
     async def _edit_embed(message: discord.Message, content: str):
         if not message.embeds:
@@ -819,9 +860,10 @@ class Modmail(commands.Cog):
             embed.set_footer(text=guild.name)
             try:
                 sent = await member.send(embed=embed)
+                shown = await channel.send(embed=discord.Embed(
+                    description=f"**First message sent:** {message}\n-# Delete this message to delete the DM."[:4000], color=GREEN))
                 db.mm_add_message(thread["id"], interaction.user.id, str(interaction.user), "staff", message,
-                                  dm_msg_id=sent.id)
-                await channel.send(embed=discord.Embed(description=f"**First message sent:** {message}"[:4000], color=GREEN))
+                                  channel_msg_id=shown.id, dm_msg_id=sent.id)
             except discord.HTTPException:
                 await channel.send(embed=error("I couldn't DM them the first message - their DMs may be closed."))
         await interaction.followup.send(f"✅ Thread opened: {channel.mention}", ephemeral=private)
