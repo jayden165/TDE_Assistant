@@ -1,18 +1,18 @@
 """
 DM inbox - bot owners only.
 
-    /dm list [page]                          everyone the bot has DMs with (since this feature was added)
-    /dm view user [limit]                    the live conversation with someone, with message IDs
-    /dm send user message                    DM someone as the bot
-    /dm edit user message_id new_text        edit one of the bot's own messages (works on embeds too)
-    /dm delete user message_ids              delete the bot's own messages (IDs separated by commas or spaces)
-    /dm feed [channel]                       mirror every DM (in and out) into a channel; empty = turn off
+    /inbox list [page]                          everyone the bot has DMs with (since this feature was added)
+    /inbox view user [limit]                    the live conversation with someone, with message IDs
+    /inbox send user message                    DM someone as the bot
+    /inbox edit user message_id new_text        edit one of the bot's own messages (works on embeds too)
+    /inbox delete user message_ids              delete the bot's own messages (IDs separated by commas or spaces)
+    /inbox feed [channel]                       mirror every DM (in and out) into a channel; empty = turn off
 
 Every command is refused for anyone who isn't on the owner list (permissions.is_owner).
 
 What Discord allows: a bot can only edit and delete ITS OWN DMs - it can't touch the messages the member
-sent. There's also no API to list a bot's DM channels, so /dm list only knows people from the moment this cog
-was added (plus anyone with a modmail thread); /dm view works for any user ID because it reads the history live.
+sent. There's also no API to list a bot's DM channels, so /inbox list only knows people from the moment this cog
+was added (plus anyone with a modmail thread); /inbox view works for any user ID because it reads the history live.
 
 Every DM that reaches or leaves the bot is saved in the dm_log table of the bot's database (content + attachment
 links) so it can be listed and mirrored. Edits and deletes are tracked too.
@@ -141,9 +141,9 @@ class DMInbox(commands.Cog):
         except discord.HTTPException:
             return None
 
-    # ---------------- /dm ----------------
+    # ---------------- /inbox ----------------
 
-    dm_group = app_commands.Group(name="dm", description="[Owner] See, send, edit and delete the bot's DMs")
+    dm_group = app_commands.Group(name="inbox", description="[Owner] See, send, edit and delete the bot's DMs")
 
     @dm_group.command(name="list", description="Everyone the bot has DMs with")
     @app_commands.describe(page="Page number")
@@ -167,7 +167,7 @@ class DMInbox(commands.Cog):
         if extra and page == 1:
             embed.add_field(name="Modmail users with nothing logged yet",
                             value=" ".join(f"<@{u}>" for u in extra[:20])[:1024], inline=False)
-        embed.set_footer(text=f"Page {page}/{pages} · /dm view <user> to open one")
+        embed.set_footer(text=f"Page {page}/{pages} · /inbox view <user> to open one")
         await interaction.response.send_message(embed=embed, ephemeral=_private(interaction),
                                                 allowed_mentions=discord.AllowedMentions.none())
 
@@ -202,7 +202,7 @@ class DMInbox(commands.Cog):
         chunks.append(cur)
         embeds = [discord.Embed(title=f"💬 DMs with {user} ({user.id})" if i == 0 else None,
                                 description=c, color=BLURPLE) for i, c in enumerate(chunks)]
-        embeds[-1].set_footer(text="Copy a message ID into /dm edit or /dm delete (bot messages only)")
+        embeds[-1].set_footer(text="Copy a message ID into /inbox edit or /inbox delete (bot messages only)")
         for i in range(0, len(embeds), 10):
             await interaction.followup.send(embeds=embeds[i:i + 10], ephemeral=_private(interaction))
 
@@ -224,7 +224,7 @@ class DMInbox(commands.Cog):
                                                 allowed_mentions=discord.AllowedMentions.none())
 
     @dm_group.command(name="edit", description="Edit one of the bot's own DMs")
-    @app_commands.describe(user="Whose DM it's in", message_id="The message ID (from /dm view)", new_text="The new text")
+    @app_commands.describe(user="Whose DM it's in", message_id="The message ID (from /inbox view)", new_text="The new text")
     async def dm_edit(self, interaction: discord.Interaction, user: discord.User, message_id: str, new_text: str):
         if not await self._guard(interaction):
             return

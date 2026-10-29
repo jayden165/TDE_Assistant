@@ -27,7 +27,7 @@ CATEGORIES = [
     ("📬 Support & applications", ["panel", "ticket", "support-mode", "modmail", "applications"]),
     ("🎤 Auditions", ["audition"]),
     ("🎬 Recordings", ["recording-post", "recording-end", "recording-ban"]),
-    ("💬 Messages", ["say", "dm", "embed", "insmp", "customcmd"]),
+    ("💬 Messages", ["say", "dm", "inbox", "embed", "insmp", "customcmd"]),
     ("🏠 Server", ["welcome", "upload"]),
     ("📺 YouTube", ["upload"]),
     ("🔒 Security", ["honeypot", "antiraid"]),
