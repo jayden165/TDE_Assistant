@@ -1,17 +1,16 @@
 """
 YouTube upload notifications for The Daily Emerald.
 
-    /upload channel set [channel]    where the notifications go (default: the channel you run it in)
-    /upload channel remove           stop notifications in this server
+    /upload channel set / remove     locked - notifications always go to the one fixed channel (see below)
     /upload ping [role]              role to ping with each notification (leave empty to stop pinging)
     /upload status                   what's set up, when it last checked, any problems
     /upload check                    check YouTube right now
 
 Every few minutes (YOUTUBE_POLL_MINUTES, default 5) the bot checks the channel's RSS feed for new videos and
-Shorts, and its Posts tab for new community posts, and posts an embed with a button to every server that
-set a channel. The first check after a channel is set only *remembers* what already exists, so old uploads
-are never announced. At most 5 items are posted per check. Works for any number of servers: the channel to
-watch is global (YOUTUBE_* in .env), the notification channel and ping role are per server.
+Shorts, and its Posts tab for new community posts, and posts an embed with a button to ONE place only:
+config.YOUTUBE_NOTIFY_CHANNEL_ID in config.YOUTUBE_NOTIFY_GUILD_ID. No other server or channel ever gets
+notifications, whatever is saved in the database. The first check only *remembers* what already exists, so old
+uploads are never announced. At most 5 items are posted per check. The ping role is still /upload ping.
 
 The commands are registered in cog_load (a nested group: /upload -> channel -> set) and removed on unload.
 """
@@ -77,15 +76,13 @@ class Uploads(commands.Cog):
         return bool(db.get_setting(0, f"yt_seeded_{source}"))
 
     def _targets(self) -> list[tuple[discord.TextChannel, discord.Role | None]]:
-        """Every server's notification channel (and ping role) that's set up and still exists."""
-        out = []
-        for guild in self.bot.guilds:
-            channel_id = db.get_setting(guild.id, "yt_channel")
-            channel = guild.get_channel(int(channel_id)) if channel_id else None
-            if isinstance(channel, discord.TextChannel):
-                role_id = db.get_setting(guild.id, "yt_ping_role")
-                out.append((channel, guild.get_role(int(role_id)) if role_id else None))
-        return out
+        """The ONE notification channel (and ping role) - fixed in config, never read from per-server settings."""
+        guild = self.bot.get_guild(config.YOUTUBE_NOTIFY_GUILD_ID)
+        channel = guild.get_channel(config.YOUTUBE_NOTIFY_CHANNEL_ID) if guild else None
+        if not isinstance(channel, discord.TextChannel):
+            return []
+        role_id = db.get_setting(guild.id, "yt_ping_role")
+        return [(channel, guild.get_role(int(role_id)) if role_id else None)]
 
     # ---------------- checking YouTube ----------------
 
@@ -188,34 +185,26 @@ class Uploads(commands.Cog):
         def private(interaction: discord.Interaction) -> bool:
             return not getattr(interaction, "is_prefix", False)
 
-        @app_commands.describe(channel="Where to post upload notifications (default: this channel)")
+        def locked_text() -> str:
+            return (f"Upload notifications are locked to <#{config.YOUTUBE_NOTIFY_CHANNEL_ID}> "
+                    f"(server `{config.YOUTUBE_NOTIFY_GUILD_ID}`) and can't be moved or turned on anywhere else.")
+
         async def channel_set(interaction: discord.Interaction, channel: discord.TextChannel = None):
             if not is_admin_perm(interaction.user):
                 return await deny(interaction)
-            target = channel or interaction.channel
-            perms = target.permissions_for(interaction.guild.me)
-            if not (perms.view_channel and perms.send_messages and perms.embed_links):
-                return await interaction.response.send_message(
-                    f"I can't post embeds in {target.mention} - check my permissions there.", ephemeral=True)
-            db.set_setting(interaction.guild.id, "yt_channel", target.id)
-            asyncio.create_task(cog.run_poll())  # remembers what's already on the channel so old uploads aren't announced
-            await interaction.response.send_message(embed=discord.Embed(
-                title="✅ Upload notifications set", color=discord.Color.green(),
-                description=f"New videos, Shorts and community posts from **{config.YOUTUBE_CHANNEL_NAME}** will be posted in {target.mention}.\n"
-                            "Use `/upload ping` to ping a role with each one."), ephemeral=private(interaction))
+            await interaction.response.send_message(locked_text(), ephemeral=private(interaction))
 
         async def channel_remove(interaction: discord.Interaction):
             if not is_admin_perm(interaction.user):
                 return await deny(interaction)
-            if not db.get_setting(interaction.guild.id, "yt_channel"):
-                return await interaction.response.send_message("Upload notifications aren't set up in this server.", ephemeral=True)
-            db.delete_setting(interaction.guild.id, "yt_channel")
-            await interaction.response.send_message("🗑️ Upload notifications are off in this server.", ephemeral=private(interaction))
+            await interaction.response.send_message(locked_text(), ephemeral=private(interaction))
 
         @app_commands.describe(role="Role to ping with each notification (leave empty to stop pinging)")
         async def ping(interaction: discord.Interaction, role: discord.Role = None):
             if not is_admin_perm(interaction.user):
                 return await deny(interaction)
+            if interaction.guild.id != config.YOUTUBE_NOTIFY_GUILD_ID:
+                return await interaction.response.send_message("Upload notifications aren't sent in this server.", ephemeral=True)
             if role is None:
                 db.delete_setting(interaction.guild.id, "yt_ping_role")
                 return await interaction.response.send_message("🔕 Notifications won't ping anyone.", ephemeral=private(interaction))
@@ -227,12 +216,12 @@ class Uploads(commands.Cog):
             if not is_admin_perm(interaction.user):
                 return await deny(interaction)
             guild = interaction.guild
-            channel_id, role_id = db.get_setting(guild.id, "yt_channel"), db.get_setting(guild.id, "yt_ping_role")
-            channel = guild.get_channel(int(channel_id)) if channel_id else None
+            role_id = db.get_setting(guild.id, "yt_ping_role")
+            channel = guild.get_channel(config.YOUTUBE_NOTIFY_CHANNEL_ID) if guild.id == config.YOUTUBE_NOTIFY_GUILD_ID else None
             role = guild.get_role(int(role_id)) if role_id else None
             embed = discord.Embed(title="📺 Upload notifications", color=discord.Color.blurple())
             embed.add_field(name="Watching", value=f"[{config.YOUTUBE_CHANNEL_NAME}](https://www.youtube.com/@{config.YOUTUBE_CHANNEL_HANDLE})\nVideos · Shorts · community posts", inline=False)
-            embed.add_field(name="Posts in", value=channel.mention if channel else "⚪ not set - use `/upload channel set`", inline=True)
+            embed.add_field(name="Posts in", value=channel.mention if channel else "⚪ not posting in this server", inline=True)
             embed.add_field(name="Pings", value=role.mention if role else "nobody", inline=True)
             embed.add_field(name="Checks every", value=f"{max(1, config.YOUTUBE_POLL_MINUTES)} min", inline=True)
             embed.add_field(name="Last check", value=f"<t:{int(cog.last_check)}:R>" if cog.last_check else "not yet", inline=True)
@@ -247,7 +236,7 @@ class Uploads(commands.Cog):
             await interaction.response.defer(ephemeral=private(interaction))
             result = await cog.run_poll()
             if not cog._targets():
-                text = "Nothing to check - no server has a notification channel set (`/upload channel set`)."
+                text = "Nothing to check - I can't see the notification channel (check the bot is in the server and can post there)."
             else:
                 parts = [f"Posted **{result['posted']}** new item(s)."]
                 if result["seeded"]:

@@ -65,6 +65,9 @@ YOUTUBE_CHANNEL_ID = os.getenv("YOUTUBE_CHANNEL_ID", "UCTHIdKaVTME8g-6KHcCW-Jg")
 YOUTUBE_CHANNEL_HANDLE = os.getenv("YOUTUBE_CHANNEL_HANDLE", "thedailyemeraldmc")
 YOUTUBE_CHANNEL_NAME = os.getenv("YOUTUBE_CHANNEL_NAME", "The Daily Emerald")
 YOUTUBE_POLL_MINUTES = _int("YOUTUBE_POLL_MINUTES", 5)
+# Video/Short/community-post notifications go ONLY to this one channel in this one server (see cogs/uploads.py).
+YOUTUBE_NOTIFY_GUILD_ID = _int("YOUTUBE_NOTIFY_GUILD_ID", 1345195966302519349)
+YOUTUBE_NOTIFY_CHANNEL_ID = _int("YOUTUBE_NOTIFY_CHANNEL_ID", 1558628969392242718)
 
 # ---- Developer ----
 # Gets the DMs from /customcmd request. Falls back to the setup user in permissions.py if unset.

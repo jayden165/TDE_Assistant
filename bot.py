@@ -45,6 +45,7 @@ EXTENSIONS = [
     "cogs.uploads",
     "cogs.settings_cmd",
     "cogs.restart",
+    "cogs.dm_inbox",
 ]
 
 # Commands hidden from anyone without the matching Discord permission (Discord's own
