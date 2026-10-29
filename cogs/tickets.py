@@ -1,5 +1,4 @@
 import asyncio
-import html
 import io
 import json
 import re
@@ -323,44 +322,55 @@ class CloseRequestView(discord.ui.View):
                                     color=discord.Color.greyple()))
 
 
-async def build_transcript_html(channel: discord.TextChannel, ticket) -> str:
-    """A readable, self-contained HTML transcript of the channel (like Ticket Tool's)."""
-    esc = html.escape
-    rows = []
+_MENTION_ONLY = re.compile(r"^(?:\s*<(?:@[!&]?|#)\d+>)+\s*$")
+
+
+def _resolve_mentions(text: str, guild: discord.Guild) -> str:
+    """Turns <@id>, <@&id> and <#id> into @name / @role / #channel so the log reads cleanly."""
+    def user(m):
+        member = guild.get_member(int(m.group(1)))
+        return "@" + (member.display_name if member else m.group(1))
+
+    def role(m):
+        r = guild.get_role(int(m.group(1)))
+        return "@" + (r.name if r else m.group(1))
+
+    def chan(m):
+        c = guild.get_channel(int(m.group(1)))
+        return "#" + (c.name if c else m.group(1))
+
+    text = re.sub(r"<@!?(\d+)>", user, text)
+    text = re.sub(r"<@&(\d+)>", role, text)
+    return re.sub(r"<#(\d+)>", chan, text)
+
+
+async def build_transcript_text(channel: discord.TextChannel, ticket) -> str:
+    """A slim plain-text transcript, one line per message:  YYYY-MM-DD HH:MM:SS | Name: message"""
+    lines = []
     async for msg in channel.history(limit=None, oldest_first=True):
-        body = esc(msg.content or "").replace("\n", "<br>")
-        extra = ""
+        parts = []
+        content = (msg.content or "").strip()
+        embed_text = []
         for e in msg.embeds:
-            parts = []
-            if e.title:
-                parts.append(f"<b>{esc(e.title)}</b>")
+            bits = []
             if e.description:
-                parts.append(esc(e.description).replace("\n", "<br>"))
+                bits.append(e.description)
             for f in e.fields:
-                parts.append(f"<b>{esc(f.name)}</b><br>{esc(f.value).replace(chr(10), '<br>')}")
-            if parts:
-                extra += '<div class="embed">' + "<br><br>".join(parts) + "</div>"
-        for a in msg.attachments:
-            extra += f'<div class="att">📎 <a href="{esc(a.url)}">{esc(a.filename)}</a></div>'
-        stamp = msg.created_at.strftime("%Y-%m-%d %H:%M:%S UTC")
-        rows.append(
-            f'<div class="msg"><img class="av" src="{esc(msg.author.display_avatar.url)}">'
-            f'<div><span class="au">{esc(msg.author.display_name)}</span>'
-            f'{"<span class=bot>BOT</span>" if msg.author.bot else ""} <span class="ts">{stamp}</span>'
-            f'<div class="tx">{body}</div>{extra}</div></div>')
-    opened = datetime.fromtimestamp(ticket["created_at"], timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    return (
-        "<!DOCTYPE html><html><head><meta charset='utf-8'><title>" + esc(channel.name) + "</title><style>"
-        "body{background:#313338;color:#dbdee1;font-family:Arial,sans-serif;margin:0;padding:24px}"
-        "h1{font-size:20px;margin:0 0 4px}.meta{color:#949ba4;font-size:13px;margin-bottom:20px}"
-        ".msg{display:flex;gap:12px;margin:14px 0}.av{width:40px;height:40px;border-radius:50%}"
-        ".au{font-weight:bold;color:#fff}.ts{color:#949ba4;font-size:12px;margin-left:6px}"
-        ".bot{background:#5865f2;color:#fff;font-size:10px;padding:1px 4px;border-radius:3px;margin-left:6px}"
-        ".tx{margin-top:2px;white-space:normal}.embed{border-left:4px solid #5865f2;background:#2b2d31;"
-        "padding:8px 12px;margin-top:6px;border-radius:4px}.att{margin-top:4px}a{color:#00a8fc}"
-        "</style></head><body>"
-        f"<h1>#{esc(channel.name)}</h1><div class='meta'>{esc(channel.guild.name)} - opened {opened} - "
-        f"opened by user {ticket['user_id']}</div>" + "".join(rows) + "</body></html>")
+                bits.append(f"{f.name}: {f.value}")
+            if bits:
+                embed_text.append(" ".join(bits))
+        # a bot line that is only the ping above its embed (e.g. "@user @staff") adds nothing - keep the embed
+        if content and not (embed_text and _MENTION_ONLY.match(content)):
+            parts.append(content)
+        parts.extend(embed_text)
+        parts.extend(a.url for a in msg.attachments)
+        text = _resolve_mentions(" ".join(parts), channel.guild)
+        text = re.sub(r"\s+", " ", text).strip()
+        if not text:
+            continue
+        stamp = msg.created_at.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        lines.append(f"{stamp} | {msg.author.display_name}: {text}")
+    return "\n".join(lines) + "\n"
 
 
 class Tickets(commands.Cog):
@@ -676,8 +686,8 @@ class Tickets(commands.Cog):
         reason = (reason or "").strip() or "No reason given"
         await self._respond(interaction, "🔒 Closing the ticket and saving the transcript...")
 
-        document = (await build_transcript_html(channel, ticket)).encode("utf-8")
-        filename = f"transcript-{channel.name}.html"
+        document = (await build_transcript_text(channel, ticket)).encode("utf-8")
+        filename = f"transcript-{channel.name}.txt"
         db.close_ticket(channel.id)
         opener = guild.get_member(ticket["user_id"])
         claimed = f"<@{ticket['claimed_by']}>" if ticket["claimed_by"] else "Nobody"
@@ -770,9 +780,9 @@ class Tickets(commands.Cog):
         if not is_staff(interaction.user) and interaction.user.id != ticket["user_id"]:
             return await interaction.response.send_message("you dont have the perms", ephemeral=True)
         await interaction.response.defer(ephemeral=True)
-        document = (await build_transcript_html(interaction.channel, ticket)).encode("utf-8")
+        document = (await build_transcript_text(interaction.channel, ticket)).encode("utf-8")
         await interaction.followup.send("📑 Here's the transcript so far:", ephemeral=True,
-                                        file=discord.File(io.BytesIO(document), filename=f"transcript-{interaction.channel.name}.html"))
+                                        file=discord.File(io.BytesIO(document), filename=f"transcript-{interaction.channel.name}.txt"))
 
     # ---------------- /ticket (manage the ticket you're in) ----------------
 
