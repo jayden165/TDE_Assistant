@@ -290,7 +290,7 @@ class Auditions(commands.Cog):
 
     @property
     def active(self) -> set[int]:
-        """Members mid-audition. Shared with the applications cog's set, which modmail already ignores DMs from."""
+        """Members mid-audition. Shared with the applications cog's set. Modmail (Modmail.in_dm_flow) ignores their DMs, won't open a thread for them and won't relay to one they already have open."""
         apps = self.bot.get_cog("Applications")
         return apps.active if apps is not None else self._fallback_active
 

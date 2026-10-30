@@ -176,6 +176,11 @@ class OpenConfirmView(discord.ui.View):
     @discord.ui.button(label="Yes, contact staff", style=discord.ButtonStyle.success)
     async def yes(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.stop()
+        if self.cog.in_dm_flow(self.member.id):  # started an audition/application after the prompt appeared
+            self.cog.opening.discard(self.member.id)
+            return await interaction.response.edit_message(embed=discord.Embed(
+                description="You're in the middle of an audition or application - finish that first, then message me again.",
+                color=GREY), view=None)
         await interaction.response.edit_message(embed=discord.Embed(description="Opening a thread...", color=BLURPLE), view=None)
         try:
             opened = await self.cog.open_thread(self.guild, self.member)
@@ -257,6 +262,15 @@ class Modmail(commands.Cog):
         except discord.HTTPException:
             return None
 
+    def in_dm_flow(self, user_id: int) -> bool:
+        """True while a member is mid DM application or mid DM audition. Their DMs are answers/recordings for
+        those flows, so modmail must neither open a thread for them nor relay what they send to an open one."""
+        for name in ("Applications", "Auditions"):
+            cog = self.bot.get_cog(name)
+            if cog is not None and user_id in cog.active:
+                return True
+        return False
+
     def _is_command_text(self, message: discord.Message) -> bool:
         """True for '<prefix><real command> ...' so staff can run commands inside a thread."""
         for prefix in permissions.get_prefixes():
@@ -296,9 +310,8 @@ class Modmail(commands.Cog):
 
     async def handle_dm(self, message: discord.Message):
         user = message.author
-        apps = self.bot.get_cog("Applications")
-        if apps is not None and user.id in apps.active:
-            return  # mid-application: those DMs are answers, not modmail
+        if self.in_dm_flow(user.id):
+            return  # mid-application / mid-audition: those DMs are answers or recordings, not modmail
         guild = self.resolve_guild()
         if guild is None:
             return
@@ -447,6 +460,9 @@ class Modmail(commands.Cog):
                 embed=error(f"**{label}** isn't available right now - pick another option."), ephemeral=True)
         if db.mm_get_block(guild.id, user.id) is not None:
             return await interaction.response.send_message(embed=error("You can't use this option on this server."), ephemeral=True)
+        if self.in_dm_flow(user.id):
+            return await interaction.response.send_message(
+                embed=error("You're in the middle of an audition or application - finish it in your DMs first."), ephemeral=True)
         if db.mm_get_open_by_user(guild.id, user.id) is not None:
             return await interaction.response.send_message(
                 embed=discord.Embed(description="You already have an open conversation with staff - just DM me "
@@ -455,6 +471,9 @@ class Modmail(commands.Cog):
 
     async def finish_panel_submission(self, interaction: discord.Interaction, label: str, text: str):
         guild, member = interaction.guild, interaction.user
+        if self.in_dm_flow(member.id):
+            return await interaction.response.send_message(
+                embed=error("You're in the middle of an audition or application - finish it in your DMs first."), ephemeral=True)
         if member.id in self.opening or db.mm_get_open_by_user(guild.id, member.id) is not None:
             return await interaction.response.send_message(
                 embed=error("You already have a conversation open with staff."), ephemeral=True)
