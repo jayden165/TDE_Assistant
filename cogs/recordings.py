@@ -99,6 +99,18 @@ def build_embed(rec, joined: int) -> discord.Embed:
 
 # ---------------- views / modals ----------------
 
+async def _tell_user_it_broke(interaction: discord.Interaction):
+    """If something unexpected goes wrong, say so instead of leaving the user staring at a spinner."""
+    text = "❌ Something went wrong while signing you up - please tell a staff member."
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send(text, ephemeral=True)
+        else:
+            await interaction.response.send_message(text, ephemeral=True)
+    except discord.HTTPException:
+        pass
+
+
 class RecordingJoinView(discord.ui.View):
     """The sign-up button under a recording post. Persistent; the recording is found by its message."""
 
@@ -107,7 +119,12 @@ class RecordingJoinView(discord.ui.View):
 
     @discord.ui.button(label="Join as an actor", style=discord.ButtonStyle.success, emoji="🎬", custom_id="recording_join")
     async def join(self, interaction: discord.Interaction, button: discord.ui.Button):
+        logging.info("recording: join button pressed by %s (message %s)", interaction.user, interaction.message.id if interaction.message else None)
         await interaction.client.get_cog("Recordings").start_join(interaction)
+
+    async def on_error(self, interaction: discord.Interaction, error: Exception, item: discord.ui.Item):
+        logging.exception("recording: join button crashed", exc_info=error)
+        await _tell_user_it_broke(interaction)
 
 
 class UsernameModal(discord.ui.Modal, title="Join this recording"):
@@ -119,7 +136,12 @@ class UsernameModal(discord.ui.Modal, title="Join this recording"):
         self.cog, self.rec_id = cog, rec_id
 
     async def on_submit(self, interaction: discord.Interaction):
+        logging.info("recording: username form submitted by %s for recording %s", interaction.user, self.rec_id)
         await self.cog.finish_join(interaction, self.rec_id, str(self.username.value).strip())
+
+    async def on_error(self, interaction: discord.Interaction, error: Exception):
+        logging.exception("recording: signup crashed", exc_info=error)
+        await _tell_user_it_broke(interaction)
 
 
 class RecordingModal(discord.ui.Modal, title="New recording"):
@@ -168,6 +190,7 @@ class Recordings(commands.Cog):
 
     async def cog_load(self):
         db.rec_clear_pending()  # signups interrupted by a restart must not hold slots forever
+        logging.info("Recordings cog ready: join button registered, RCON configured=%s", rcon.configured())
 
     def _lock(self, rec_id: int) -> asyncio.Lock:
         return self._locks.setdefault(rec_id, asyncio.Lock())
