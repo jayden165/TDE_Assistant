@@ -223,7 +223,8 @@ class Recordings(commands.Cog):
                                description or None, int(max_text), interaction.user.id)
         rec = db.rec_get(rec_id)
         try:
-            message = await channel.send(embed=build_embed(rec, 0), view=RecordingJoinView())
+            message = await channel.send("@everyone", embed=build_embed(rec, 0), view=RecordingJoinView(),
+                                          allowed_mentions=discord.AllowedMentions(everyone=True))
         except discord.HTTPException:
             db.rec_delete(rec_id)
             return await interaction.response.send_message(embed=self._error(f"I couldn't post in {channel.mention}."), ephemeral=True)

@@ -310,7 +310,8 @@ class Auditions(commands.Cog):
         aud = {"id": next_id(gid, "id"), "title": title, "script": script, "deadline": deadline, "closed": False,
                "channel_id": channel.id, "message_id": 0, "created_by": interaction.user.id}
         try:
-            msg = await channel.send(embed=script_embed(aud), view=script_view(aud))
+            msg = await channel.send("@everyone", embed=script_embed(aud), view=script_view(aud),
+                                     allowed_mentions=discord.AllowedMentions(everyone=True))
         except discord.HTTPException:
             return await interaction.response.send_message(
                 f"I couldn't post in {channel.mention} - I need View Channel and Send Messages there.", ephemeral=True)
