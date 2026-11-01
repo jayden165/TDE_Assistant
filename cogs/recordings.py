@@ -14,6 +14,9 @@ Join button               asks for a Minecraft username, whitelists it over RCON
                            who were already whitelisted before they signed up), removes their role, and
                            closes the post.
 /recording-ban    (staff)  stops someone ever signing up as an actor (type "lift" as the reason to undo it).
+/recording-whitelist (staff) switches between "whitelist + role" (default) and "role only" for NEW signups.
+                           In role-only mode nobody is whitelisted and RCON isn't needed; /recording-end never
+                           touches the whitelist for those people (it still removes their role).
 
 Safety: a Minecraft username is checked against ^[A-Za-z0-9_]{3,16}$ before it goes anywhere near an RCON
 command, so nobody can inject extra commands. A slot is held while someone's signup is in progress, so two
@@ -76,6 +79,14 @@ def parse_when(text: str) -> int | None:
         return int(datetime(y, mo, d, h, mi, tzinfo=timezone.utc).timestamp())
     except ValueError:
         return None
+
+
+WL_SETTING = "recording:whitelist"  # saved per server in the settings table: "1" = whitelist + role, "0" = role only
+
+
+def whitelist_enabled(guild_id: int) -> bool:
+    """True (the default): signups are whitelisted over RCON and get the role. False: role only."""
+    return db.get_setting(guild_id, WL_SETTING, "1") != "0"
 
 
 def build_embed(rec, joined: int) -> discord.Embed:
@@ -252,7 +263,12 @@ class Recordings(commands.Cog):
             db.rec_delete(rec_id)
             return await interaction.response.send_message(embed=self._error(f"I couldn't post in {channel.mention}."), ephemeral=True)
         db.rec_set_message(rec_id, channel.id, message.id)
-        note = "" if rcon.configured() else "\n⚠️ RCON isn't configured yet (RCON_HOST / RCON_PASSWORD in `.env`), so signups will fail until it is."
+        if not whitelist_enabled(interaction.guild.id):
+            note = "\nℹ️ Whitelisting is **off** - signups only get the actor role (`/recording-whitelist` changes this)."
+        elif not rcon.configured():
+            note = "\n⚠️ RCON isn't configured yet (RCON_HOST / RCON_PASSWORD in `.env`), so signups will fail until it is."
+        else:
+            note = ""
         await interaction.response.send_message(f"✅ Recording #{rec_id} posted in {channel.mention}.{note}", ephemeral=True)
         await self._staff_log(interaction.guild, "🎬 Recording posted",
                               [f"**{title}** (#{rec_id}) by {interaction.user.mention} in {channel.mention}", f"Max actors: {max_text}"])
@@ -270,7 +286,7 @@ class Recordings(commands.Cog):
             return await interaction.response.send_message("You're not able to sign up for recordings.", ephemeral=True)
         if db.rec_user_signup(rec["id"], user.id) is not None:
             return await interaction.response.send_message("You've already joined this recording!", ephemeral=True)
-        if not rcon.configured():
+        if whitelist_enabled(guild.id) and not rcon.configured():
             return await interaction.response.send_message(
                 "Signups aren't set up on the server yet - please tell a staff member.", ephemeral=True)
         await interaction.response.send_modal(UsernameModal(self, rec["id"]))
@@ -278,6 +294,7 @@ class Recordings(commands.Cog):
     async def finish_join(self, interaction: discord.Interaction, rec_id: int, username: str):
         await interaction.response.defer(ephemeral=True)
         guild, user = interaction.guild, interaction.user
+        wl_on = whitelist_enabled(guild.id)
 
         async def say(text: str):
             await interaction.followup.send(text, ephemeral=True)
@@ -299,22 +316,27 @@ class Recordings(commands.Cog):
             if signup_id is None:
                 return await say("You've already joined this recording!")
 
-        try:
-            reply = (await rcon.run([config.RCON_ADD_COMMAND.format(username=username)]))[0]
-        except rcon.RconError as e:
-            db.rec_signup_delete(signup_id)
-            logging.error("recording signup: RCON failed for %s: %s", username, e)
-            return await say("❌ I couldn't reach the Minecraft server right now. Please try again in a minute, or tell a staff member.")
-        outcome = classify_add(reply)
-        logging.info("recording %s signup %s -> %s (server said: %r)", rec_id, username, outcome, reply)
-        if outcome == "invalid":
-            db.rec_signup_delete(signup_id)
-            return await say(f"❌ **{username}** isn't a valid Minecraft username, so I couldn't whitelist it. Check the spelling and press the button to try again.")
-        if outcome == "error":
-            db.rec_signup_delete(signup_id)
-            return await say("❌ The server didn't accept the whitelist command - please tell a staff member.")
+        if wl_on:
+            try:
+                reply = (await rcon.run([config.RCON_ADD_COMMAND.format(username=username)]))[0]
+            except rcon.RconError as e:
+                db.rec_signup_delete(signup_id)
+                logging.error("recording signup: RCON failed for %s: %s", username, e)
+                return await say("❌ I couldn't reach the Minecraft server right now. Please try again in a minute, or tell a staff member.")
+            outcome = classify_add(reply)
+            logging.info("recording %s signup %s -> %s (server said: %r)", rec_id, username, outcome, reply)
+            if outcome == "invalid":
+                db.rec_signup_delete(signup_id)
+                return await say(f"❌ **{username}** isn't a valid Minecraft username, so I couldn't whitelist it. Check the spelling and press the button to try again.")
+            if outcome == "error":
+                db.rec_signup_delete(signup_id)
+                return await say("❌ The server didn't accept the whitelist command - please tell a staff member.")
+        else:
+            outcome = "skipped"  # role-only mode: nobody is whitelisted
+            logging.info("recording %s signup %s -> role only (whitelisting is off)", rec_id, username)
 
-        db.rec_signup_joined(signup_id, already_wl=(outcome == "already"))
+        # already_wl=True means "/recording-end must not un-whitelist this person" - also true for role-only signups
+        db.rec_signup_joined(signup_id, already_wl=(outcome in ("already", "skipped")))
         role_problem = None
         role = guild.get_role(config.RECORDING_ACTOR_ROLE_ID)
         if role is None:
@@ -334,6 +356,32 @@ class Recordings(commands.Cog):
             if rec["status"] == "open" and db.rec_count(rec_id, joined_only=True) >= rec["max_actors"]:
                 db.rec_set_status(rec_id, "full")
         await self.refresh_message(rec_id)
+
+    # ---------------- /recording-whitelist ----------------
+
+    @app_commands.command(name="recording-whitelist",
+                          description="[Staff] Whitelist + role for new signups, or role only (leave empty to flip it)")
+    @app_commands.describe(mode="on = whitelist + give the role (default), off = only give the role")
+    @app_commands.choices(mode=[app_commands.Choice(name="on", value="on"), app_commands.Choice(name="off", value="off")])
+    async def recording_whitelist(self, interaction: discord.Interaction, mode: str = None):
+        private = not getattr(interaction, "is_prefix", False)
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("you dont have the perms", ephemeral=True)
+        guild = interaction.guild
+        enabled = (not whitelist_enabled(guild.id)) if mode is None else (mode == "on")
+        db.set_setting(guild.id, WL_SETTING, "1" if enabled else "0")
+        if enabled:
+            text = "🟢 Whitelisting is **ON** - new signups are whitelisted on the Minecraft server and get the actor role."
+            if not rcon.configured():
+                text += "\n⚠️ RCON isn't configured yet (RCON_HOST / RCON_PASSWORD in `.env`), so signups will fail until it is."
+        else:
+            text = ("🟡 Whitelisting is **OFF** - new signups only get the actor role. Nobody is whitelisted, "
+                    "and `/recording-end` won't touch the whitelist for them.")
+        text += "\n*People who already signed up keep what they got.*"
+        await interaction.response.send_message(
+            embed=discord.Embed(description=text, color=GREEN if enabled else discord.Color.orange()), ephemeral=private)
+        await self._staff_log(guild, "🎬 Recording whitelisting " + ("ON" if enabled else "OFF (role only)"),
+                              [f"Changed by {interaction.user.mention}"])
 
     # ---------------- /recording-end ----------------
 
@@ -375,7 +423,7 @@ class Recordings(commands.Cog):
             title=f"End recording #{rec['id']}: {rec['title']}?", color=discord.Color.orange(),
             description=f"**{len(signups)}** actor(s) signed up.\n"
                         f"• **{len(to_remove)}** will be taken off the whitelist\n"
-                        f"• **{len(kept)}** stay whitelisted (they already were before signing up)\n"
+                        f"• **{len(kept)}** left alone on the whitelist (already whitelisted, or signed up in role-only mode)\n"
                         f"• **{len(signups)}** will lose the actor role\n\nThis can't be undone.")
         await interaction.response.send_message(embed=embed, view=EndConfirmView(self, rec["id"], interaction.user.id), ephemeral=True)
 
@@ -421,7 +469,7 @@ class Recordings(commands.Cog):
             title=f"{'✅' if not problems else '⚠️'} Recording #{rec_id} {'ended' if not problems else 'partly cleaned up'}",
             color=GREEN if not problems else discord.Color.orange(),
             description=f"• Taken off the whitelist: **{wl_removed}**\n"
-                        f"• Left on the whitelist (were already on it): **{sum(1 for s in signups if s['already_wl'])}**\n"
+                        f"• Whitelist untouched (already on it, or role-only signup): **{sum(1 for s in signups if s['already_wl'])}**\n"
                         f"• Actor role removed: **{roles_removed}**")
         if problems:
             result.add_field(name="Needs another go", value="\n".join(problems)[:1024], inline=False)

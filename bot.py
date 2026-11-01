@@ -58,7 +58,7 @@ ADMIN_ONLY_COMMANDS = [
 ]
 
 MANAGE_MESSAGES_COMMANDS = [
-    "panel", "infractions", "channel", "applications", "recording-post", "recording-ban",
+    "panel", "infractions", "channel", "applications", "recording-post", "recording-ban", "recording-whitelist",
 ]
 
 
